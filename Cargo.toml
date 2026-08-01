@@ -1,0 +1,22 @@
+[package]
+name = "exe-metal"
+version = "0.1.0"
+edition = "2021"
+description = "Run Windows games and applications on Apple Silicon macOS"
+license = "MIT"
+
+[[bin]]
+name = "exe-metal"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
