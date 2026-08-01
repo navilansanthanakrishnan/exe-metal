@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Cross-compiled benchmark output
+bench/*.exe
+bench/*.o
+
+.DS_Store
