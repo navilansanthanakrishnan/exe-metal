@@ -80,6 +80,27 @@ pub fn play(layout: &Layout, req: &Request) -> Result<i32> {
     let decision = decide(layout, &exe, req.bottle.as_deref())?;
     print_decision(&decision);
 
+    // A Steam game launched by path does not run — it re-invokes the client
+    // with `steam://run/<appid>` and exits, leaving an extra Steam behind.
+    // Repeat that and you have several, which is where "duplicate Steam" comes
+    // from. Hand it to the client instead, which is what the game was going to
+    // do anyway, only without the second copy.
+    if let Some(app) = crate::steam::detect_app(&exe) {
+        let host = steam_bottle_for(layout, &exe).unwrap_or_else(|| decision.bottle.clone());
+        println!(
+            "\nthis is a Steam game ({}), so Steam has to start it",
+            app.install_dir
+        );
+        let b = Bottle::load(layout, &host).with_context(|| {
+            format!("bottle '{host}' holds this game but could not be loaded")
+        })?;
+        crate::steam::run_app(layout, &b, &app.appid)?;
+        let mut recent = Recent::load(layout);
+        recent.record(&exe, &b.name);
+        let _ = recent.save(layout);
+        return Ok(0);
+    }
+
     let mut b = if decision.created {
         println!("\ncreating bottle '{}'", decision.bottle);
         bottle::create(
@@ -176,6 +197,20 @@ pub fn print_decision(d: &Decision) {
     for w in &d.plan.warnings {
         println!("  warn      {w}");
     }
+}
+
+/// Which bottle actually holds this Steam library?
+///
+/// A game under `<bottle>/pfx/drive_c/.../steamapps` has to be launched by the
+/// Steam client in that same prefix — the one that owns its manifests and its
+/// login. Deriving a bottle from the game's folder name would create a fresh,
+/// Steam-less one.
+fn steam_bottle_for(layout: &Layout, exe: &Path) -> Option<String> {
+    let bottles = layout.bottles();
+    let rest = exe.strip_prefix(&bottles).ok()?;
+    rest.components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
 }
 
 /// Name a bottle after the game rather than the executable.

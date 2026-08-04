@@ -109,3 +109,93 @@ pub fn needs_frameworks(runtime_id: &str) -> bool {
 pub fn is_wswine_layout(tree: &Path) -> bool {
     tree.join("wswine.bundle").is_dir()
 }
+
+/// Locate a directory Wine ships its bundled installers in, across both bundle
+/// layouts.
+fn share_wine(tree: &Path, what: &str) -> Option<std::path::PathBuf> {
+    for base in [
+        tree.join("wswine.bundle/share/wine"),
+        tree.join("Contents/Resources/wine/share/wine"),
+        tree.join("share/wine"),
+    ] {
+        let p = base.join(what);
+        if p.is_dir() && std::fs::read_dir(&p).map(|mut d| d.next().is_some()).unwrap_or(false) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Does this engine carry the wine-mono installer?
+///
+/// This matters more than it looks. Wine only shows the blocking "install
+/// Mono?" dialog when it cannot find the installer locally; when the runtime
+/// bundles it, `wineboot` installs it silently. So a bundled Mono means the
+/// .NET loader can be left enabled, and every .NET game works.
+pub fn bundles_mono(tree: &Path) -> bool {
+    share_wine(tree, "mono").is_some()
+}
+
+pub fn bundles_gecko(tree: &Path) -> bool {
+    share_wine(tree, "gecko").is_some()
+}
+
+/// Put wine-mono into a prefix that does not have it.
+///
+/// `wineboot -u` will not do this: the bundled Mono is only installed when a
+/// prefix is first created, so a prefix built while `mscoree` was disabled
+/// stays permanently without .NET no matter how many times it is rebooted.
+///
+/// The runtime ships Mono pre-extracted rather than as a single MSI, so this
+/// mirrors what Wine's own first-boot path does — copy the tree into
+/// `drive_c/windows/mono`, then run the small support MSI that writes the
+/// registry keys `mscoree` looks for. Without that second step the files are
+/// present and `mscoree` still reports "error reading registry key for
+/// installroot".
+pub fn mono_into_prefix(layout: &Layout, bottle: &crate::bottle::Bottle) -> Result<bool> {
+    let engine = bottle.engine_dir(layout)?;
+    let Some(src_root) = share_wine(&engine, "mono") else {
+        return Ok(false);
+    };
+
+    // share/wine/mono/wine-mono-<version>/
+    let Some(versioned) = std::fs::read_dir(&src_root)
+        .ok()
+        .and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| p.is_dir()))
+    else {
+        return Ok(false);
+    };
+    let name = versioned
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "wine-mono".into());
+
+    let mono_dir = bottle.prefix(layout).join("drive_c/windows/mono");
+    let dest = mono_dir.join(&name);
+    if !dest.exists() {
+        std::fs::create_dir_all(&mono_dir)?;
+        util::clone_tree(&versioned, &dest)?;
+    }
+
+    // The support MSI registers the install root. Reference it by its Windows
+    // path so msiexec resolves it inside the prefix.
+    let msi_unix = dest.join("support/winemono-support.msi");
+    if msi_unix.is_file() {
+        let msi_win = format!("C:\\windows\\mono\\{name}\\support\\winemono-support.msi");
+        let wine = bottle.wine(layout)?;
+        let vars = crate::env::build(layout, bottle);
+        let status = std::process::Command::new(&wine)
+            .args(["msiexec", "/i", &msi_win, "/quiet"])
+            .envs(&vars)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if let Ok(s) = status {
+            if !s.success() {
+                eprintln!("  warn    winemono-support.msi exited with {s}");
+            }
+        }
+    }
+
+    Ok(dest.is_dir())
+}
