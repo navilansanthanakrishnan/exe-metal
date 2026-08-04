@@ -9,12 +9,23 @@ license = "MIT"
 name = "exe-metal"
 path = "src/main.rs"
 
+[features]
+default = ["ui"]
+# The window. Kept optional because it pulls a windowing and rendering stack
+# that the CLI has no use for: `--no-default-features` still builds the full
+# command-line tool in a couple of seconds.
+ui = ["dep:eframe", "dep:egui", "dep:rfd"]
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+
+eframe = { version = "0.35", optional = true }
+egui = { version = "0.35", optional = true }
+rfd = { version = "0.17", optional = true }
 
 [profile.release]
 opt-level = 3
