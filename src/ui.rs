@@ -310,7 +310,11 @@ impl eframe::App for App {
                             .join(", ")
                     };
                     row(ui, "graphics", &apis);
-                    row(ui, "renderer", &format!("{} — {}", d.plan.renderer, d.plan.why));
+                    row(
+                        ui,
+                        "renderer",
+                        &format!("{} — {}", d.plan.renderer, d.plan.why),
+                    );
                     row(
                         ui,
                         "bottle",
@@ -398,7 +402,10 @@ impl eframe::App for App {
 
 fn row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.horizontal_top(|ui| {
-        ui.add_sized([70.0, 16.0], egui::Label::new(egui::RichText::new(label).weak()));
+        ui.add_sized(
+            [70.0, 16.0],
+            egui::Label::new(egui::RichText::new(label).weak()),
+        );
         // The renderer explanation is a full sentence and will not fit on one
         // line in a narrow window; without this it is silently clipped at the
         // window edge.

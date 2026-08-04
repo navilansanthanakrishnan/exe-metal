@@ -45,8 +45,10 @@ pub fn run(layout: &Layout, opts: &Options) -> Result<()> {
     println!("exe-metal setup");
     println!("  machine   {}", machine.summary());
     if !machine.cpu_brand.is_empty() {
-        println!("  cpu       {} ({} cores: {}P + {}E)",
-            machine.cpu_brand, machine.total_cores, machine.perf_cores, machine.eff_cores);
+        println!(
+            "  cpu       {} ({} cores: {}P + {}E)",
+            machine.cpu_brand, machine.total_cores, machine.perf_cores, machine.eff_cores
+        );
     }
     println!();
 
@@ -80,7 +82,9 @@ pub fn run(layout: &Layout, opts: &Options) -> Result<()> {
         println!("  3. engine    {}+{}", opts.runtime, opts.renderer);
         println!("  4. bottle    {}", opts.bottle);
         if !machine.rosetta {
-            println!("  5. rosetta   needs: sudo softwareupdate --install-rosetta --agree-to-license");
+            println!(
+                "  5. rosetta   needs: sudo softwareupdate --install-rosetta --agree-to-license"
+            );
         }
         return Ok(());
     }
@@ -140,7 +144,11 @@ pub fn run(layout: &Layout, opts: &Options) -> Result<()> {
 fn report_capabilities(m: &Machine) {
     println!("capabilities");
     ok(m.rosetta, "Rosetta 2", "needed to execute x86-64 code");
-    ok(m.has_metalfx(), "MetalFX upscaling", "renders low, upscales — real framerate win");
+    ok(
+        m.has_metalfx(),
+        "MetalFX upscaling",
+        "renders low, upscales — real framerate win",
+    );
     ok(
         m.has_hardware_raytracing(),
         "hardware ray tracing",

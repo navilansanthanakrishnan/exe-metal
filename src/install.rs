@@ -9,7 +9,10 @@ pub fn runtime(layout: &Layout, id: &str) -> Result<()> {
     let spec = catalog::runtime(id).ok_or_else(|| anyhow!("unknown runtime '{id}'"))?;
     let dest = layout.runtime(id);
     if dest.exists() {
-        println!("runtime '{id}' already installed ({})", util::human_size(&dest));
+        println!(
+            "runtime '{id}' already installed ({})",
+            util::human_size(&dest)
+        );
         return Ok(());
     }
 
@@ -119,7 +122,11 @@ fn share_wine(tree: &Path, what: &str) -> Option<std::path::PathBuf> {
         tree.join("share/wine"),
     ] {
         let p = base.join(what);
-        if p.is_dir() && std::fs::read_dir(&p).map(|mut d| d.next().is_some()).unwrap_or(false) {
+        if p.is_dir()
+            && std::fs::read_dir(&p)
+                .map(|mut d| d.next().is_some())
+                .unwrap_or(false)
+        {
             return Some(p);
         }
     }

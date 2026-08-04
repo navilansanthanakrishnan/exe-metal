@@ -86,7 +86,10 @@ impl WindowCfg {
         } else {
             default_desktop_size()
         };
-        Some(vec!["explorer".into(), format!("/desktop=exe-metal,{size}")])
+        Some(vec![
+            "explorer".into(),
+            format!("/desktop=exe-metal,{size}"),
+        ])
     }
 }
 
@@ -114,11 +117,7 @@ pub fn apply(layout: &Layout, bottle: &Bottle) -> Result<()> {
             "CaptureDisplaysForFullscreen",
             b(w.capture_displays),
         ),
-        (
-            r"HKCU\Software\Wine\Mac Driver",
-            "RetinaMode",
-            b(w.retina),
-        ),
+        (r"HKCU\Software\Wine\Mac Driver", "RetinaMode", b(w.retina)),
         (
             r"HKCU\Software\Wine\Mac Driver",
             "UseSystemCursor",

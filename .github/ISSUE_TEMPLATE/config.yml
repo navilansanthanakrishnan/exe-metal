@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or general discussion
+    url: https://github.com/NavilanSanthanakrishnan/exe-metal/discussions
+    about: For "how do I…" and anything that is not a bug or a request.
+  - name: Security vulnerability
+    url: https://github.com/NavilanSanthanakrishnan/exe-metal/security/advisories/new
+    about: Please report privately rather than opening an issue.
+  - name: A game does not work
+    url: https://github.com/NavilanSanthanakrishnan/exe-metal/issues/new?template=game_report.yml
+    about: Report a specific title, working or not.

@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest something new
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation you hit, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like it to do
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+
+  - type: markdown
+    attributes:
+      value: |
+        Out of scope, so please do not ask: DRM circumvention, anti-cheat
+        evasion, Intel Mac support, or anything for running software you did
+        not obtain legitimately. See [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md#scope).

@@ -1,0 +1,73 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Failures in this project are usually silent — the symptom points
+        somewhere useless and the cause is three layers down. The diagnostic
+        output below is what makes a report actionable, so please include it.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact commands you ran.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: exe-metal doctor
+      description: Paste the full output. This identifies your chip, macOS version and what is installed.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnose
+    attributes:
+      label: exe-metal diagnose <bottle>
+      description: Often names the cause outright.
+      render: text
+
+  - type: textarea
+    id: status
+    attributes:
+      label: exe-metal status <bottle>
+      description: Run this *while* the problem is happening, if it is a hang, a stall, or high CPU.
+      render: text
+
+  - type: textarea
+    id: winelog
+    attributes:
+      label: Wine output
+      description: |
+        If something fails to start, the exit code alone rarely explains it:
+
+        ```sh
+        WINEDEBUG=+err,+seh exe-metal run <bottle> <exe> 2>&1 | tail -50
+        ```
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on Apple Silicon with macOS 14 or newer
+          required: true
+        - label: I ran `exe-metal repair <bottle>`, which fixes settings frozen at bottle creation
+        - label: I own this software legitimately
+          required: true

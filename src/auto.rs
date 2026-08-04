@@ -91,9 +91,8 @@ pub fn play(layout: &Layout, req: &Request) -> Result<i32> {
             "\nthis is a Steam game ({}), so Steam has to start it",
             app.install_dir
         );
-        let b = Bottle::load(layout, &host).with_context(|| {
-            format!("bottle '{host}' holds this game but could not be loaded")
-        })?;
+        let b = Bottle::load(layout, &host)
+            .with_context(|| format!("bottle '{host}' holds this game but could not be loaded"))?;
         crate::steam::run_app(layout, &b, &app.appid)?;
         let mut recent = Recent::load(layout);
         recent.record(&exe, &b.name);
@@ -133,7 +132,11 @@ pub fn play(layout: &Layout, req: &Request) -> Result<i32> {
     }
 
     let log = b.dir(layout).join("logs/run.log");
-    let sink = if req.detach { Some(log.as_path()) } else { None };
+    let sink = if req.detach {
+        Some(log.as_path())
+    } else {
+        None
+    };
 
     println!("\nlaunching {}", exe.display());
     let code = run::exec(layout, &b, &exe, &req.args, req.detach, sink)?;
@@ -235,8 +238,18 @@ fn bottle_name_for(exe: &Path) -> String {
 fn is_generic_dir(s: &str) -> bool {
     matches!(
         s.to_ascii_lowercase().as_str(),
-        "bin" | "bin64" | "win64" | "win32" | "x64" | "x86" | "game" | "release" | "build"
-            | "desktop" | "downloads" | "documents"
+        "bin"
+            | "bin64"
+            | "win64"
+            | "win32"
+            | "x64"
+            | "x86"
+            | "game"
+            | "release"
+            | "build"
+            | "desktop"
+            | "downloads"
+            | "documents"
     )
 }
 
