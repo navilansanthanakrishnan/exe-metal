@@ -116,6 +116,172 @@ fn resolve_exe(layout: &Layout, bottle: &Bottle, exe: &Path) -> Result<PathBuf> 
     bail!("could not find executable: {}", exe.display())
 }
 
+/// Launch through a generated `.app` bundle, so macOS treats the program as a
+/// real foreground application.
+///
+/// This is not cosmetic, and skipping it costs you every input the game should
+/// have received. Executing the `wine` binary directly leaves the resulting
+/// process with activation policy **Prohibited**: it draws windows perfectly
+/// well, but it can never become the active application. Clicking its window
+/// does not focus it, it accepts no keyboard or mouse input, and it exposes
+/// nothing to the accessibility APIs — which reads as "the game is frozen".
+///
+/// Measured on the same executable, from `NSRunningApplication`:
+///
+/// ```text
+/// wine <exe>          policy=Prohibited(background-only)   active=False
+/// open Game.app       policy=Regular(foreground)           active=True
+/// ```
+///
+/// macOS only hands out a regular activation policy to something started
+/// through LaunchServices with a bundle behind it, so exe-metal builds one. The
+/// bundle is a throwaway: regenerated on every launch and named for the game
+/// only so it reads sensibly in the Dock and the app switcher.
+pub fn exec_bundled(
+    layout: &Layout,
+    bottle: &Bottle,
+    exe: &Path,
+    args: &[String],
+    label: &str,
+    extra_env: &[(String, String)],
+) -> Result<PathBuf> {
+    let wine = bottle.wine(layout)?;
+    let exe_abs = resolve_exe(layout, bottle, exe)?;
+    let workdir = exe_abs
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| bottle.prefix(layout));
+
+    // Keep the name filesystem-safe; it becomes the bundle directory and the
+    // name macOS shows for the running application.
+    let safe: String = label
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    let app = bottle.dir(layout).join("apps").join(format!("{safe}.app"));
+    let macos = app.join("Contents/MacOS");
+    if app.exists() {
+        std::fs::remove_dir_all(&app)?;
+    }
+    std::fs::create_dir_all(&macos)?;
+
+    std::fs::write(
+        app.join("Contents/Info.plist"),
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>launch</string>
+  <key>CFBundleIdentifier</key><string>org.exe-metal.{}.{safe}</string>
+  <key>CFBundleName</key><string>{label}</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+"#,
+            bottle.name
+        ),
+    )?;
+
+    let mut script = String::from("#!/bin/bash\n");
+    let mut vars = env::build(layout, bottle);
+    for (k, v) in extra_env {
+        vars.insert(k.clone(), v.clone());
+    }
+    for (k, v) in &vars {
+        script.push_str(&format!("export {k}={}\n", sh_quote(v)));
+    }
+    script.push_str(&format!("cd {}\n", sh_quote(&workdir.to_string_lossy())));
+    let logpath = bottle.dir(layout).join("logs/game.log");
+    script.push_str(&format!(
+        "exec {} {} {} >{} 2>&1\n",
+        sh_quote(&wine.to_string_lossy()),
+        sh_quote(&exe_abs.to_string_lossy()),
+        args.iter()
+            .map(|a| sh_quote(a))
+            .collect::<Vec<_>>()
+            .join(" "),
+        sh_quote(&logpath.to_string_lossy()),
+    ));
+
+    let launcher = macos.join("launch");
+    std::fs::write(&launcher, script)?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::create_dir_all(logpath.parent().unwrap())?;
+
+    let status = Command::new("open")
+        .arg(&app)
+        .status()
+        .context("open(1) failed to launch the bundle")?;
+    if !status.success() {
+        bail!("could not launch {}", app.display());
+    }
+    Ok(app)
+}
+
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Point the prefix's `explorer` at a virtual desktop, or turn it off.
+///
+/// Written to the registry rather than passed on a command line because the
+/// process that matters is not one we launch: Steam starts the game itself, so
+/// `wine explorer /desktop=...` around our own invocation would never reach it.
+/// The registry setting applies to everything in the prefix, which is what a
+/// game launched by a client needs.
+pub fn set_virtual_desktop(layout: &Layout, bottle: &Bottle) -> Result<()> {
+    let wine = bottle.wine(layout)?;
+    let vars = env::build(layout, bottle);
+
+    let reg = |args: &[&str]| -> Result<()> {
+        Command::new(&wine)
+            .arg("reg")
+            .args(args)
+            .envs(&vars)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("running wine reg")?;
+        Ok(())
+    };
+
+    match bottle.virtual_desktop.as_deref() {
+        Some(size) => {
+            reg(&[
+                "add",
+                r"HKCU\Software\Wine\Explorer\Desktops",
+                "/v",
+                "Default",
+                "/t",
+                "REG_SZ",
+                "/d",
+                size,
+                "/f",
+            ])?;
+            reg(&[
+                "add",
+                r"HKCU\Software\Wine\Explorer",
+                "/v",
+                "Desktop",
+                "/t",
+                "REG_SZ",
+                "/d",
+                "Default",
+                "/f",
+            ])?;
+            println!("virtual desktop set to {size} for bottle '{}'", bottle.name);
+        }
+        None => {
+            reg(&["delete", r"HKCU\Software\Wine\Explorer", "/v", "Desktop", "/f"])?;
+            println!("virtual desktop disabled for bottle '{}'", bottle.name);
+        }
+    }
+    Ok(())
+}
+
 /// The directory Wine keys to a prefix, named from the prefix's device and
 /// inode. Its `lock` file is held open by that prefix's `wineserver` for as
 /// long as anything in the prefix is alive.

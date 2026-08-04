@@ -338,31 +338,6 @@ whole UI in software, on the CPU, under Rosetta, and scrolling visibly suffers.
 It is now `perf.cef_gpu` and defaults to *on*, since D3DMetal supplies the D3D11
 that CEF's ANGLE backend wants. Turn it off if the client crashes at startup.
 
-**Renderer overlays must preserve symlinks.** The unix-side `d3d11.so` is a
-symlink to `../../external/libd3dshared.dylib`; dereferencing it produces an
-engine that looks correct and does not work.
-
-**Two Steam clients cannot share one account.** If the native macOS Steam is
-signed in, the bottled client logs in and is dropped immediately with
-"NO CONNECTION". `exe-metal` warns when it sees the native client running.
-
-**You cannot find a bottle's processes by grepping for the prefix.** This is the
-same trap the `prune` section describes, and `steam.rs` used to fall into it:
-once Wine execs the Windows image, `ps` shows `C:\Program Files (x86)\Steam\
-steam.exe` and the host path is gone from the command line entirely. A `pgrep`
-for the prefix matches only in the instant before the exec, so a healthy client
-reads as dead — which made `steam launch` give up on a download that was
-progressing fine, because the bootstrapper re-execs during its 32→64-bit
-handoff. Wine names its server directory from the prefix's device and inode, so
-`lsof` on `/tmp/.wine-<uid>/server-<dev>-<ino>/lock` is the one handle that
-stays bound to a specific bottle. `run::alive` uses it.
-
-**`-cef-disable-gpu` is not free.** Steam's entire interface is a CEF web app,
-so that flag does not merely disable effects — it rasterises and composites the
-whole UI in software, on the CPU, under Rosetta, and scrolling visibly suffers.
-It is now `perf.cef_gpu` and defaults to *on*, since D3DMetal supplies the D3D11
-that CEF's ANGLE backend wants. Turn it off if the client crashes at startup.
-
 **A "fullscreen" game can hang 63 pixels off the bottom of the screen.** Wine's
 Mac driver places a window *below* the menu bar (y=33) but a game asking for a
 fullscreen-sized client area still gets a title bar on top of that, so the total

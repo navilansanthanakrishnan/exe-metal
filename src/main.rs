@@ -157,6 +157,16 @@ enum Cmd {
     /// Print the environment a bottle runs with.
     Env { bottle: String },
 
+    /// Run a bottle inside a Wine virtual desktop.
+    ///
+    /// Games that ask for fullscreen otherwise get a raised, non-activating
+    /// macOS window that never takes focus and so accepts no input.
+    Desktop {
+        bottle: String,
+        /// Size such as 1600x1000, or "off" to go back to native windows.
+        size: String,
+    },
+
     /// Inspect or rebuild composed runtime+renderer engines.
     Engine {
         #[command(subcommand)]
@@ -224,6 +234,11 @@ enum SteamCmd {
         /// Show the Metal performance overlay for this run.
         #[arg(long)]
         hud: bool,
+        /// Start the game's executable directly, from a generated .app bundle,
+        /// instead of asking the client to launch it. Gives the game a window
+        /// that can take focus; some titles refuse to start this way.
+        #[arg(long)]
+        direct: bool,
     },
 }
 
@@ -451,6 +466,23 @@ fn real_main() -> Result<()> {
             println!("{}", env::as_shell(&env::build(&layout, &b)));
         }
 
+        Cmd::Desktop { bottle: name, size } => {
+            let mut b = bottle::Bottle::load(&layout, &name)?;
+            b.virtual_desktop = if size.eq_ignore_ascii_case("off") {
+                None
+            } else {
+                if !size.split_once('x').is_some_and(|(w, h)| {
+                    w.parse::<u32>().is_ok() && h.parse::<u32>().is_ok()
+                }) {
+                    bail!("size must look like 1600x1000, or be 'off'");
+                }
+                Some(size)
+            };
+            b.save(&layout)?;
+            run::set_virtual_desktop(&layout, &b)?;
+            println!("restart anything running in the bottle for this to take effect");
+        }
+
         Cmd::Engine { cmd } => match cmd {
             EngineCmd::List => {
                 let engines = engine::list(&layout);
@@ -564,12 +596,13 @@ fn real_main() -> Result<()> {
                 appid,
                 args,
                 hud,
+                direct,
             } => {
                 let mut b = bottle::Bottle::load(&layout, &name)?;
                 if hud {
                     b.perf.hud = true;
                 }
-                steam::run_app(&layout, &b, &appid, &args)?;
+                steam::run_app(&layout, &b, &appid, &args, direct)?;
             }
         },
     }

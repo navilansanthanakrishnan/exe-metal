@@ -12,7 +12,7 @@ use crate::bottle::Bottle;
 use crate::install;
 use crate::paths::Layout;
 use crate::run;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -257,6 +257,60 @@ impl App {
             .join(&self.installdir)
     }
 
+    /// The game's own executable.
+    ///
+    /// Steam records the install directory but not which binary to run, so this
+    /// is a guess: the `.exe` files sitting at the top of the game directory,
+    /// minus the helpers every Unity and Steam build ships alongside the real
+    /// one. Returns an error rather than picking arbitrarily when that leaves
+    /// more than one.
+    pub fn exe(&self, layout: &Layout, bottle: &Bottle) -> Result<PathBuf> {
+        const HELPERS: &[&str] = &[
+            "unitycrashhandler",
+            "uninstall",
+            "unins",
+            "setup",
+            "vcredist",
+            "dxsetup",
+            "launcher_",
+            "crashreport",
+            "crashhandler",
+        ];
+        let dir = self.dir(layout, bottle);
+        let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .with_context(|| format!("reading {}", dir.display()))?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.extension().and_then(|s| s.to_str()).map(|e| e.eq_ignore_ascii_case("exe"))
+                    == Some(true)
+            })
+            .filter(|p| {
+                let stem = p
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                !HELPERS.iter().any(|h| stem.contains(h))
+            })
+            .collect();
+        found.sort();
+
+        match found.len() {
+            1 => Ok(found.remove(0)),
+            0 => bail!("found no game executable in {}", dir.display()),
+            _ => bail!(
+                "more than one candidate executable in {} — {}",
+                dir.display(),
+                found
+                    .iter()
+                    .filter_map(|p| p.file_name().and_then(|s| s.to_str()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+
     pub fn percent(&self) -> f64 {
         if self.bytes_total == 0 {
             return if self.installed() { 100.0 } else { 0.0 };
@@ -476,14 +530,31 @@ pub fn prepare_app(layout: &Layout, bottle: &Bottle, appid: &str) -> Result<()> 
     Ok(())
 }
 
-/// Launch a game through the client, by app id.
+/// Launch a game, by app id.
 ///
-/// `-applaunch` is what the client's own library buttons use: it sets up the
-/// app environment and ownership ticket before starting the executable, which
-/// is why running the .exe directly does not work. SCP:SL dies outright that
-/// way — "SCPSL.exe has encountered a serious problem" — even with
-/// `SteamAppId` set and the client live.
-pub fn run_app(layout: &Layout, bottle: &Bottle, appid: &str, args: &[String]) -> Result<()> {
+/// Two routes, and neither is unambiguously better:
+///
+/// * **`-applaunch` (default).** The client sets up the app environment and
+///   ownership ticket, then starts the executable itself. This is what the
+///   library's own Play button does, and some titles run no other way — SCP:SL
+///   dies with "SCPSL.exe has encountered a serious problem" if its executable
+///   is started directly, even with `SteamAppId` set and the client live.
+///
+/// * **`direct` — start the executable ourselves from a generated `.app`
+///   bundle.** The reason to want this is focus: see `run::exec_bundled`. A
+///   game the client launches is one more bare Wine process, and those get
+///   macOS activation policy Prohibited, so the window never becomes active
+///   and the game receives no input.
+///
+/// So a title that tolerates a direct launch gets a focusable window, and one
+/// that does not is stuck with whatever the client gives it.
+pub fn run_app(
+    layout: &Layout,
+    bottle: &Bottle,
+    appid: &str,
+    args: &[String],
+    direct: bool,
+) -> Result<()> {
     let a = match app(layout, bottle, appid) {
         Some(a) if a.installed() => a,
         Some(a) => bail!(
@@ -507,12 +578,25 @@ pub fn run_app(layout: &Layout, bottle: &Bottle, appid: &str, args: &[String]) -
     }
     ensure_running(layout, bottle)?;
 
-    println!("launching {} ({appid})", a.name);
-    let mut argv = vec!["-applaunch".to_string(), appid.to_string()];
-    argv.extend_from_slice(args);
-    let exe = steam_exe(layout, bottle);
-    let log = bottle.dir(layout).join("logs/game.log");
-    run::exec(layout, bottle, &exe, &argv, true, Some(&log))?;
+    if direct {
+        let exe = a.exe(layout, bottle)?;
+        println!("launching {} ({appid}) directly\n  {}", a.name, exe.display());
+        // Steamworks needs to know which app this process is when the client
+        // did not start it. Authentication still comes from the live client.
+        let extra = vec![
+            ("SteamAppId".to_string(), appid.to_string()),
+            ("SteamGameId".to_string(), appid.to_string()),
+            ("SteamOverlayGameId".to_string(), appid.to_string()),
+        ];
+        run::exec_bundled(layout, bottle, &exe, args, &a.name, &extra)?;
+    } else {
+        println!("launching {} ({appid})", a.name);
+        let mut argv = vec!["-applaunch".to_string(), appid.to_string()];
+        argv.extend_from_slice(args);
+        let exe = steam_exe(layout, bottle);
+        let log = bottle.dir(layout).join("logs/game.log");
+        run::exec(layout, bottle, &exe, &argv, true, Some(&log))?;
+    }
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
     while std::time::Instant::now() < deadline {

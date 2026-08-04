@@ -17,6 +17,18 @@ pub struct Bottle {
     pub windows: String,
     #[serde(default)]
     pub perf: Perf,
+    /// Run everything in this bottle inside one Wine virtual desktop of this
+    /// size, e.g. `"1600x1000"`.
+    ///
+    /// Without it, a game that asks for fullscreen gets a real macOS window at
+    /// a raised, non-activating level: clicking it never transfers focus, so it
+    /// receives no input at all, and a Unity title that grabs or clips the
+    /// cursor from that state degrades the pointer system-wide. Inside a
+    /// virtual desktop the game owns no macOS window — `explorer.exe` owns one
+    /// ordinary one and the game draws inside it — so focus behaves normally
+    /// and a cursor grab is confined to that window.
+    #[serde(default)]
+    pub virtual_desktop: Option<String>,
     /// Extra Wine DLL overrides, merged with the ones exe-metal always sets.
     ///
     /// Separate from `env` because `WINEDLLOVERRIDES` is a single variable
@@ -163,6 +175,7 @@ pub fn create(
         renderer: renderer_id.to_string(),
         windows: default_windows(),
         perf,
+        virtual_desktop: None,
         dll_overrides: BTreeMap::new(),
         env: BTreeMap::new(),
     };
