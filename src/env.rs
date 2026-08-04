@@ -35,7 +35,19 @@ pub fn build(layout: &Layout, bottle: &Bottle) -> BTreeMap<String, String> {
 
     // Suppress the Mono/Gecko installer prompts; games do not need them and the
     // dialogs block an unattended launch.
-    e.insert("WINEDLLOVERRIDES".into(), "mscoree,mshtml=".into());
+    //
+    // The bottle's own overrides are appended rather than allowed to replace
+    // this. WINEDLLOVERRIDES is one variable holding a list, so a bottle that
+    // needed to disable a single DLL would otherwise drop the suppression above
+    // and get a three-minute wait on a dialog nobody can see.
+    let mut overrides = vec!["mscoree,mshtml=".to_string()];
+    overrides.extend(
+        bottle
+            .dll_overrides
+            .iter()
+            .map(|(dll, to)| format!("{dll}={to}")),
+    );
+    e.insert("WINEDLLOVERRIDES".into(), overrides.join(";"));
 
     // --- CPU -------------------------------------------------------------
     if bottle.perf.avx {

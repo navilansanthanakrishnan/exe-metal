@@ -116,6 +116,51 @@ fn resolve_exe(layout: &Layout, bottle: &Bottle, exe: &Path) -> Result<PathBuf> 
     bail!("could not find executable: {}", exe.display())
 }
 
+/// The directory Wine keys to a prefix, named from the prefix's device and
+/// inode. Its `lock` file is held open by that prefix's `wineserver` for as
+/// long as anything in the prefix is alive.
+pub fn server_dir(layout: &Layout, bottle: &Bottle) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::metadata(bottle.prefix(layout)).ok()?;
+    let uid = unsafe { libc::getuid() };
+    Some(PathBuf::from(format!(
+        "/tmp/.wine-{uid}/server-{:x}-{:x}",
+        md.dev(),
+        md.ino()
+    )))
+}
+
+/// Is anything at all alive in this bottle?
+///
+/// Matching processes by the prefix path does not work, and the failure is
+/// silent. Wine re-execs into the Windows image, after which `ps` shows
+/// `C:\Program Files (x86)\Steam\steam.exe` and the host path is gone from the
+/// command line entirely — the same blind spot `prune` documents. A `pgrep` for
+/// the prefix therefore matches only during the instant before the exec, so a
+/// perfectly healthy client reads as dead.
+///
+/// The wineserver's lock file is the one handle that stays bound to a specific
+/// prefix, because Wine names its server directory from that prefix's device
+/// and inode.
+pub fn alive(layout: &Layout, bottle: &Bottle) -> bool {
+    let Some(dir) = server_dir(layout, bottle) else {
+        return false;
+    };
+    let lock = dir.join("lock");
+    if !lock.exists() {
+        return false;
+    }
+    // The directory outlives an unclean shutdown; only an open file descriptor
+    // proves a server is still there.
+    Command::new("lsof")
+        .arg("-t")
+        .arg(&lock)
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
 /// Stop everything running in one bottle, and nothing else.
 ///
 /// Scoped to the bottle's own prefix path so other bottles — and any unrelated

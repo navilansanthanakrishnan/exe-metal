@@ -199,6 +199,32 @@ enum SteamCmd {
     },
     /// Tail Steam's own logs, which explain far more than Wine's.
     Logs { bottle: String },
+
+    /// List the games the bottled client has on disk.
+    Apps { bottle: String },
+    /// Download a game into the bottle by Steam app id.
+    InstallApp {
+        bottle: String,
+        appid: String,
+        /// Return as soon as the download is queued.
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// Run a game's prerequisite installers (redists, .NET, DirectX) without
+    /// starting it. Only needed once, before the first launch.
+    Prepare { bottle: String, appid: String },
+    /// Launch a game through the client, by Steam app id.
+    App {
+        bottle: String,
+        appid: String,
+        /// Arguments passed through to the game. Game flags start with a
+        /// hyphen, so they are taken verbatim rather than parsed here.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Show the Metal performance overlay for this run.
+        #[arg(long)]
+        hud: bool,
+    },
 }
 
 fn main() {
@@ -486,6 +512,64 @@ fn real_main() -> Result<()> {
                         }
                     }
                 }
+            }
+
+            SteamCmd::Apps { bottle: name } => {
+                let b = bottle::Bottle::load(&layout, &name)?;
+                let apps = steam::apps(&layout, &b);
+                if apps.is_empty() {
+                    println!("no games in bottle '{name}' yet");
+                }
+                for a in apps {
+                    let state = if a.installed() {
+                        "installed".to_string()
+                    } else {
+                        format!("{:.1}%", a.percent())
+                    };
+                    println!("{:<10} {:<12} {}", a.id, state, a.name);
+                    // The host path is what you need the moment anything goes
+                    // wrong — logs, config and the executable all live there.
+                    println!("{:<23} {}", "", a.dir(&layout, &b).display());
+                }
+            }
+
+            SteamCmd::InstallApp {
+                bottle: name,
+                appid,
+                no_wait,
+            } => {
+                let b = bottle::Bottle::load(&layout, &name)?;
+                steam::install_app(&layout, &b, &appid)?;
+                if no_wait {
+                    println!("queued. watch it with: exe-metal steam apps {name}");
+                } else if !steam::wait_for_install(&layout, &b, &appid, 7200) {
+                    eprintln!("still downloading — watch it with: exe-metal steam apps {name}");
+                }
+            }
+
+            SteamCmd::Prepare {
+                bottle: name,
+                appid,
+            } => {
+                let b = bottle::Bottle::load(&layout, &name)?;
+                steam::prepare_app(&layout, &b, &appid)?;
+                println!(
+                    "prerequisites are installing in the background; watch them with:\n  \
+                     exe-metal steam logs {name}"
+                );
+            }
+
+            SteamCmd::App {
+                bottle: name,
+                appid,
+                args,
+                hud,
+            } => {
+                let mut b = bottle::Bottle::load(&layout, &name)?;
+                if hud {
+                    b.perf.hud = true;
+                }
+                steam::run_app(&layout, &b, &appid, &args)?;
             }
         },
     }

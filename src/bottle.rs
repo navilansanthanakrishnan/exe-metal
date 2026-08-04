@@ -17,6 +17,16 @@ pub struct Bottle {
     pub windows: String,
     #[serde(default)]
     pub perf: Perf,
+    /// Extra Wine DLL overrides, merged with the ones exe-metal always sets.
+    ///
+    /// Separate from `env` because `WINEDLLOVERRIDES` is a single variable
+    /// carrying a list: setting it through `env` replaces the Mono/Gecko
+    /// suppression exe-metal depends on, which silently reintroduces the
+    /// invisible installer dialog that makes a launch look like a hang.
+    ///
+    /// An empty value disables a DLL: `gameoverlayrenderer64 = ""`.
+    #[serde(default)]
+    pub dll_overrides: BTreeMap<String, String>,
     /// Extra environment variables, applied last so they win.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -46,6 +56,18 @@ pub struct Perf {
     /// Metal's built-in performance overlay.
     #[serde(default)]
     pub hud: bool,
+    /// Let Steam's embedded browser render on the GPU.
+    ///
+    /// Steam's whole interface is a CEF web app, so `-cef-disable-gpu` does not
+    /// "cost nothing visually" — it rasterises the entire UI in software, on
+    /// the CPU, through Rosetta. Measured here: `steamwebhelper` pinned at ~89%
+    /// of a core while merely downloading, with visibly sluggish scrolling.
+    ///
+    /// On by default because D3DMetal supplies the D3D11 that CEF's ANGLE
+    /// backend wants. Turn it off if the client crashes on startup — that is
+    /// the failure this flag originally existed to avoid.
+    #[serde(default = "yes")]
+    pub cef_gpu: bool,
 }
 
 fn yes() -> bool {
@@ -61,6 +83,7 @@ impl Default for Perf {
             metalfx: true,
             dxr: false,
             hud: false,
+            cef_gpu: true,
         }
     }
 }
@@ -140,6 +163,7 @@ pub fn create(
         renderer: renderer_id.to_string(),
         windows: default_windows(),
         perf,
+        dll_overrides: BTreeMap::new(),
         env: BTreeMap::new(),
     };
     bottle.save(layout)?;

@@ -33,6 +33,17 @@ $ exe-metal probe .../x86launcher.exe
   bottle    x86launcher  (will be created)
 ```
 
+A game that lives in Steam rather than as a loose executable has no `.exe` to
+hand to `play` until the client has downloaded one, so it goes through the
+client instead:
+
+```
+exe-metal steam install-app steam 700330   # download it (free titles: also adds it)
+exe-metal steam apps steam                 # what is installed, and where
+exe-metal steam prepare steam 700330       # redists/.NET/DirectX, once
+exe-metal steam app steam 700330           # launch it
+```
+
 ## What this actually is
 
 CrossOver's performance is not magic. It is three layers, and every one of them
@@ -224,13 +235,21 @@ holding a real healthy log to keep it that way.
 - **Binary detection is exact.** `probe` agrees with `file(1)` on both
   bitnesses across a 32/64-bit pair of the same program.
 - Engine composition, bottle creation, prune, doctor.
+- **A real game runs.** *SCP: Secret Laboratory* (app 700330, Unity 6, Windows-
+  only) installs through the bottled client and reaches its authenticated main
+  menu on `sikarugir-10.0` + `d3dmetal`, on an M4 Max / macOS 26.5.2. The game
+  reports `Direct3D 11.0 [level 11.1]`, renderer `AMD Compatibility Mode`, and
+  logs `Started Steam Client (…)`, so Steamworks auth works from inside the
+  bottle. Its prerequisite chain — `mono.msi`, VC++ 2022 x86/x64, DirectX
+  Jun2010, .NET 4.8 — all installs cleanly under Wine 10.0.
 
 ## Not yet verified
 
-- **No real game has been run.** Everything above is a synthetic benchmark, a
-  driver-query tool and the Steam client. A shipping title exercises texture
-  streaming, audio, input, save files and a launcher — none of which this has
-  touched.
+- **No gameplay.** A game reaches its authenticated main menu; nobody has
+  joined a server. Frame pacing under load, audio, input and networking during
+  an actual round are all still unmeasured.
+- **No AAA title.** SCP:SL is a modest Unity game. Texture streaming and the
+  memory behaviour of a large modern title remain untested.
 - **The 32-bit renderer paths are chosen but unproven.** `probe` correctly
   routes 32-bit binaries to DXMT and DirectX 9 to d9vk, and refuses to pair
   D3DMetal with a 32-bit exe — but no 32-bit game has actually rendered a frame
@@ -301,6 +320,71 @@ engine that looks correct and does not work.
 **Two Steam clients cannot share one account.** If the native macOS Steam is
 signed in, the bottled client logs in and is dropped immediately with
 "NO CONNECTION". `exe-metal` warns when it sees the native client running.
+
+**You cannot find a bottle's processes by grepping for the prefix.** This is the
+same trap the `prune` section describes, and `steam.rs` used to fall into it:
+once Wine execs the Windows image, `ps` shows `C:\Program Files (x86)\Steam\
+steam.exe` and the host path is gone from the command line entirely. A `pgrep`
+for the prefix matches only in the instant before the exec, so a healthy client
+reads as dead — which made `steam launch` give up on a download that was
+progressing fine, because the bootstrapper re-execs during its 32→64-bit
+handoff. Wine names its server directory from the prefix's device and inode, so
+`lsof` on `/tmp/.wine-<uid>/server-<dev>-<ino>/lock` is the one handle that
+stays bound to a specific bottle. `run::alive` uses it.
+
+**`-cef-disable-gpu` is not free.** Steam's entire interface is a CEF web app,
+so that flag does not merely disable effects — it rasterises and composites the
+whole UI in software, on the CPU, under Rosetta, and scrolling visibly suffers.
+It is now `perf.cef_gpu` and defaults to *on*, since D3DMetal supplies the D3D11
+that CEF's ANGLE backend wants. Turn it off if the client crashes at startup.
+
+**Renderer overlays must preserve symlinks.** The unix-side `d3d11.so` is a
+symlink to `../../external/libd3dshared.dylib`; dereferencing it produces an
+engine that looks correct and does not work.
+
+**Two Steam clients cannot share one account.** If the native macOS Steam is
+signed in, the bottled client logs in and is dropped immediately with
+"NO CONNECTION". `exe-metal` warns when it sees the native client running.
+
+**You cannot find a bottle's processes by grepping for the prefix.** This is the
+same trap the `prune` section describes, and `steam.rs` used to fall into it:
+once Wine execs the Windows image, `ps` shows `C:\Program Files (x86)\Steam\
+steam.exe` and the host path is gone from the command line entirely. A `pgrep`
+for the prefix matches only in the instant before the exec, so a healthy client
+reads as dead — which made `steam launch` give up on a download that was
+progressing fine, because the bootstrapper re-execs during its 32→64-bit
+handoff. Wine names its server directory from the prefix's device and inode, so
+`lsof` on `/tmp/.wine-<uid>/server-<dev>-<ino>/lock` is the one handle that
+stays bound to a specific bottle. `run::alive` uses it.
+
+**`-cef-disable-gpu` is not free.** Steam's entire interface is a CEF web app,
+so that flag does not merely disable effects — it rasterises and composites the
+whole UI in software, on the CPU, under Rosetta, and scrolling visibly suffers.
+It is now `perf.cef_gpu` and defaults to *on*, since D3DMetal supplies the D3D11
+that CEF's ANGLE backend wants. Turn it off if the client crashes at startup.
+
+**A "fullscreen" game can hang 63 pixels off the bottom of the screen.** Wine's
+Mac driver places a window *below* the menu bar (y=33) but a game asking for a
+fullscreen-sized client area still gets a title bar on top of that, so the total
+overflows the display and the bottom of the UI is unreachable — on a 1728x1117
+screen, SCP:SL came up as `y=33 h=1147`, ending at 1180. Nothing reports this;
+it just looks like the game has no bottom. Unity titles take size on the command
+line, and `steam app` passes its trailing arguments straight through:
+
+```
+exe-metal steam app scpsl 700330 -screen-fullscreen 0 -screen-width 1600 -screen-height 1000
+```
+
+Check it with the window's real bounds rather than by eye — `CGWindowListCopy‑
+WindowInfo` reports x/y/width/height for every `wine`-owned window.
+
+**A game can block on a dialog of its own.** SCP:SL opens a Win32 message box
+("Running the game under Wine/Proton is not officially supported…") *before*
+Unity initialises, and sits at 0.3% CPU until it is answered — indistinguishable
+from a hang unless you go looking for the window. Worse, it opens *behind* the
+Steam window, and Wine windows cannot be raised programmatically: they expose
+nothing to macOS accessibility and ignore `CGEventPostToPid`. Answering it means
+making it genuinely topmost first.
 
 ## Performance knobs
 
