@@ -1,0 +1,71 @@
+name: Game report
+description: Report a specific game — working or not
+labels: [game-report]
+title: "[Game] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports of games that **work** are as valuable as ones that do not.
+        The project's honest position is that very few titles have been verified,
+        so every data point moves that forward.
+
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      placeholder: Celeste (Steam appid 504230)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: state
+    attributes:
+      label: How well does it run?
+      options:
+        - Perfect — no issues
+        - Playable — minor issues
+        - Runs, but badly
+        - Starts, then fails
+        - Does not start at all
+    validations:
+      required: true
+
+  - type: textarea
+    id: probe
+    attributes:
+      label: exe-metal probe <game exe>
+      description: Gives bitness, graphics API and the chosen renderer.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: bottle
+    attributes:
+      label: Runtime + renderer used
+      placeholder: sikarugir-10.0 + dxmt
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Chip and macOS
+      placeholder: M1 Pro, macOS 15.2
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything needed to make it work
+      description: Settings changed, virtual desktop, a different renderer, launch options.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I own this game legitimately
+          required: true

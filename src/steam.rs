@@ -46,14 +46,7 @@ pub fn install(layout: &Layout, bottle: &Bottle) -> Result<()> {
 
     let installer = install::steam_installer(layout)?;
     println!("running the Steam installer");
-    let code = run::exec(
-        layout,
-        bottle,
-        &installer,
-        &["/S".to_string()],
-        false,
-        None,
-    )?;
+    let code = run::exec(layout, bottle, &installer, &["/S".to_string()], false, None)?;
     if code != 0 {
         eprintln!("  warn    installer exited with {code}");
     }
@@ -133,7 +126,10 @@ pub fn launch(layout: &Layout, bottle: &Bottle, detach: bool) -> Result<()> {
             return Ok(());
         }
         if still_running(layout, bottle) {
-            println!("Steam is still working — watch it with: exe-metal steam logs {}", bottle.name);
+            println!(
+                "Steam is still working — watch it with: exe-metal steam logs {}",
+                bottle.name
+            );
             return Ok(());
         }
     }
@@ -256,20 +252,17 @@ pub fn detect_app(exe: &Path) -> Option<SteamApp> {
     // installs as "Poppy Playtime - Multiplayer").
     for entry in std::fs::read_dir(steamapps).ok()?.flatten() {
         let p = entry.path();
-        if !p.extension().is_some_and(|e| e == "acf") {
+        if p.extension().is_none_or(|e| e != "acf") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&p) else {
             continue;
         };
-        if !vdf_value(&text, "installdir").is_some_and(|d| d == install_dir) {
+        if vdf_value(&text, "installdir").is_none_or(|d| d != install_dir) {
             continue;
         }
         if let Some(appid) = vdf_value(&text, "appid") {
-            return Some(SteamApp {
-                appid,
-                install_dir,
-            });
+            return Some(SteamApp { appid, install_dir });
         }
     }
     None
@@ -281,7 +274,10 @@ fn vdf_value(text: &str, key: &str) -> Option<String> {
     let needle = format!("\"{key}\"");
     for line in text.lines() {
         let t = line.trim();
-        if !t.to_ascii_lowercase().starts_with(&needle.to_ascii_lowercase()) {
+        if !t
+            .to_ascii_lowercase()
+            .starts_with(&needle.to_ascii_lowercase())
+        {
             continue;
         }
         let mut parts = t.split('"').filter(|s| !s.trim().is_empty());

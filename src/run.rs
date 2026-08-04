@@ -49,7 +49,10 @@ pub fn exec(
     if let Some(desktop) = bottle.window.desktop_args() {
         cmd.args(desktop);
     }
-    cmd.arg(&exe_abs).args(args).envs(&vars).current_dir(&workdir);
+    cmd.arg(&exe_abs)
+        .args(args)
+        .envs(&vars)
+        .current_dir(&workdir);
 
     if let Some(logpath) = log {
         if let Some(parent) = logpath.parent() {

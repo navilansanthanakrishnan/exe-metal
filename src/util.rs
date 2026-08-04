@@ -97,7 +97,10 @@ pub fn clone_tree(src: &Path, dest: &Path) -> Result<()> {
     match cow {
         Ok(s) if s.success() => Ok(()),
         // Non-APFS or cross-volume: fall back to a plain recursive copy.
-        _ => run("cp", &["-R", &src.to_string_lossy(), &dest.to_string_lossy()]),
+        _ => run(
+            "cp",
+            &["-R", &src.to_string_lossy(), &dest.to_string_lossy()],
+        ),
     }
 }
 

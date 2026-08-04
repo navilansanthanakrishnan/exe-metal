@@ -31,7 +31,10 @@ pub fn run(layout: &Layout) -> Result<()> {
         problems += 1;
     }
 
-    println!("  ---   chip: {} ({}) on {}", m.silicon, m.cpu_brand, m.model);
+    println!(
+        "  ---   chip: {} ({}) on {}",
+        m.silicon, m.cpu_brand, m.model
+    );
     println!(
         "  ---   cores: {} total — {} performance, {} efficiency",
         m.total_cores, m.perf_cores, m.eff_cores
@@ -111,7 +114,11 @@ pub fn run(layout: &Layout) -> Result<()> {
                 b.runtime,
                 b.renderer,
                 util::human_size(&pfx),
-                if wow { "" } else { "  (no WoW64: 32-bit apps will not run)" }
+                if wow {
+                    ""
+                } else {
+                    "  (no WoW64: 32-bit apps will not run)"
+                }
             );
         }
     }

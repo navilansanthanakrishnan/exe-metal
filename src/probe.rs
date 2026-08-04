@@ -92,8 +92,8 @@ pub struct Plan {
 }
 
 pub fn inspect(path: &Path) -> Result<ExeInfo> {
-    let meta = std::fs::metadata(path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
+    let meta =
+        std::fs::metadata(path).with_context(|| format!("cannot read {}", path.display()))?;
     if !meta.is_file() {
         bail!("{} is not a file", path.display());
     }
@@ -232,8 +232,7 @@ pub fn plan(info: &ExeInfo) -> Plan {
 
     if info.arch == Arch::X86 {
         warnings.push(
-            "32-bit needs a prefix with a WoW64 layer; exe-metal creates one by default."
-                .into(),
+            "32-bit needs a prefix with a WoW64 layer; exe-metal creates one by default.".into(),
         );
     }
 
@@ -357,7 +356,7 @@ fn contains_ci(haystack: &[u8], needle: &[u8]) -> bool {
         if haystack[i..i + needle.len()]
             .iter()
             .zip(needle)
-            .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+            .all(|(a, b)| a.eq_ignore_ascii_case(b))
         {
             return true;
         }
@@ -428,7 +427,10 @@ mod tests {
         assert_eq!(pe_status(&s), PeStatus::Damaged);
 
         // A valid PE with a machine value we do not know is not damaged.
-        assert_eq!(pe_status(&fake_pe(0x1234, b"")), PeStatus::Ok(Arch::Unknown));
+        assert_eq!(
+            pe_status(&fake_pe(0x1234, b"")),
+            PeStatus::Ok(Arch::Unknown)
+        );
     }
 
     #[test]

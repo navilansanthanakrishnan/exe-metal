@@ -60,18 +60,27 @@ pub fn run(layout: &Layout, force: bool) -> Result<()> {
     }
 
     for o in &orphans {
-        let _ = Command::new("kill").arg("-TERM").arg(o.pid.to_string()).status();
+        let _ = Command::new("kill")
+            .arg("-TERM")
+            .arg(o.pid.to_string())
+            .status();
     }
     std::thread::sleep(std::time::Duration::from_secs(3));
     for o in find_orphans() {
-        let _ = Command::new("kill").arg("-KILL").arg(o.pid.to_string()).status();
+        let _ = Command::new("kill")
+            .arg("-KILL")
+            .arg(o.pid.to_string())
+            .status();
     }
     println!("\npruned {} process(es)", orphans.len());
     Ok(())
 }
 
 fn find_orphans() -> Vec<Orphan> {
-    let Ok(out) = Command::new("ps").args(["-Ao", "pid,ppid,pcpu,args"]).output() else {
+    let Ok(out) = Command::new("ps")
+        .args(["-Ao", "pid,ppid,pcpu,args"])
+        .output()
+    else {
         return Vec::new();
     };
     let text = String::from_utf8_lossy(&out.stdout);

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail on warnings rather than letting them accumulate.
+  RUSTFLAGS: -D warnings
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Apple Silicon runner: this project only targets arm64 macOS, so building
+    # on an Intel runner would prove nothing useful.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build (CLI only)
+        run: cargo build --no-default-features --verbose
+
+      - name: Build (with the window)
+        run: cargo build --all-features --verbose
+
+      - name: Unit tests
+        # These deliberately need no network, no Wine and no GPU, so they are
+        # the part CI can actually run. The integration suite (tests/smoke.sh)
+        # needs a real install and is run by hand — see CONTRIBUTING.md.
+        run: cargo test --all-features --verbose
+
+      - name: CLI smoke
+        run: |
+          cargo build --release --no-default-features
+          ./target/release/exe-metal --version
+          ./target/release/exe-metal catalog
+          ./target/release/exe-metal setup --dry-run || true
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell scripts
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck --severity=warning install.sh
+          shellcheck --severity=warning tests/smoke.sh
+
+  msrv:
+    # The floor stated in Cargo.toml has to be real, not aspirational. 1.92
+    # comes from egui/eframe and is confirmed green, so this gates like the
+    # rest — raising the floor now requires updating Cargo.toml deliberately.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - id: msrv
+        run: echo "v=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.v }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features

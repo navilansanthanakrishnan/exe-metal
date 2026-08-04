@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.1.0)"
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify before shipping
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-features
+
+      - name: Build release binary
+        run: cargo build --release --all-features
+
+      - name: Package
+        id: pkg
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          NAME="exe-metal-${TAG}-aarch64-apple-darwin"
+          mkdir -p "dist/${NAME}"
+          cp target/release/exe-metal "dist/${NAME}/"
+          cp README.md LICENSE THIRD-PARTY.md "dist/${NAME}/"
+          cd dist
+          tar -czf "${NAME}.tar.gz" "${NAME}"
+          shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "--- checksum ---"
+          cat "${NAME}.tar.gz.sha256"
+
+      - name: Confirm the packaged binary runs
+        run: |
+          tar -xzf "dist/${{ steps.pkg.outputs.name }}.tar.gz" -C /tmp
+          "/tmp/${{ steps.pkg.outputs.name }}/exe-metal" --version
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/NavilanSanthanakrishnan/exe-metal/main/install.sh | sh
+            ```
+
+            Or grab the binary below, verify it, and put it on your PATH:
+
+            ```sh
+            shasum -a 256 -c exe-metal-*.tar.gz.sha256
+            tar -xzf exe-metal-*.tar.gz
+            install -m 0755 exe-metal-*/exe-metal ~/.local/bin/
+            exe-metal setup
+            ```
+
+            **Requires** macOS 14+ on Apple Silicon, plus Rosetta 2
+            (`softwareupdate --install-rosetta --agree-to-license`).
+
+            The binary is ad-hoc signed and not notarised, so on first run macOS
+            may refuse it. Clear the quarantine flag:
+
+            ```sh
+            xattr -d com.apple.quarantine ~/.local/bin/exe-metal
+            ```

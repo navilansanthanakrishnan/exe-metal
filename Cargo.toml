@@ -2,8 +2,20 @@
 name = "exe-metal"
 version = "0.1.0"
 edition = "2021"
-description = "Run Windows games and applications on Apple Silicon macOS"
+# Set by egui/eframe, which are the floor for the `ui` feature. The CLI alone
+# builds on older toolchains, but a single stated MSRV is less confusing than
+# two, and CI enforces this one.
+rust-version = "1.92"
+description = "Run Windows games and applications on Apple Silicon macOS, using only free components"
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/NavilanSanthanakrishnan/exe-metal"
+homepage = "https://github.com/NavilanSanthanakrishnan/exe-metal"
+documentation = "https://github.com/NavilanSanthanakrishnan/exe-metal#readme"
+authors = ["Navilan Santhanakrishnan"]
+keywords = ["wine", "macos", "directx", "metal", "gaming"]
+categories = ["command-line-utilities", "emulators", "game-development"]
+exclude = ["/.github", "/docs", "/bench", "/tests", "*.md", "!README.md"]
 
 [[bin]]
 name = "exe-metal"

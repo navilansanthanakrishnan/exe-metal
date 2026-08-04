@@ -102,7 +102,11 @@ pub fn processes(layout: &Layout, b: &Bottle) -> Vec<Proc> {
             name,
         });
     }
-    v.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_by(|a, b| {
+        b.cpu
+            .partial_cmp(&a.cpu)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     v
 }
 
