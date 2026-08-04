@@ -6,9 +6,31 @@ components.
 Built and verified on **macOS 26.5, Apple M5 Pro, 24 GB**.
 
 ```
-exe-metal install                  # fetch Wine + every renderer
+curl -fsSL .../install.sh | sh      # Rust, build, install, setup — one command
+exe-metal ui                        # a window: pick an .exe, boot it
+exe-metal play "/path/to/game.exe"  # same thing, no window
+```
+
+Or, driving it by hand:
+
+```
+exe-metal setup                    # everything: runtime, renderers, engine, bottle
 exe-metal steam setup              # bottle + Windows Steam, running
 exe-metal run mygame "C:\Games\thing.exe" --hud
+```
+
+`play` reads the executable's PE header and its DLL references, then picks the
+runtime and renderer itself — you do not have to know that D3DMetal has no
+32-bit build, or that DXMT needs a Wine exporting `winemetal`. `exe-metal probe`
+shows the same reasoning without running anything:
+
+```
+$ exe-metal probe .../x86launcher.exe
+  binary    32-bit x86
+  graphics  none named in the binary
+  runtime   sikarugir-10.0
+  renderer  dxmt  — 32-bit, so D3DMetal is out (64-bit only)
+  bottle    x86launcher  (will be created)
 ```
 
 ## What this actually is
@@ -106,6 +128,85 @@ The first pass of any comparison is worthless — cold shader compilation cost
 made CrossOver's build look 46% *faster* until the caches warmed up and the
 result inverted.
 
+## Hardware
+
+Detected rather than assumed, because three things genuinely differ across the
+line and each one changes what you should turn on:
+
+| | M1 / M2 | M3 and later |
+|---|---|---|
+| Hardware ray tracing | **no** — RT units arrived with M3 | yes |
+| MetalFX upscaling | yes (macOS 13+) | yes |
+| `D3DM_SUPPORT_DXR` worth it | no, it costs framerate for nothing | yes |
+
+The generation is parsed out of `machdep.cpu.brand_string` rather than matched
+against a list, so a chip newer than this table identifies correctly and
+inherits the M3+ answers. `exe-metal doctor` prints all of it, and `diagnose`
+warns if a bottle has `dxr = true` on silicon that cannot honour it.
+
+One more that is easy to get wrong: **Rosetta only advertises AVX on macOS 15
+and later.** `ROSETTA_ADVERTISE_AVX=1` is accepted and ignored on 14, so doctor
+reports it as unavailable there rather than implying a speedup that is not
+happening.
+
+## Games launched from the bottled Steam
+
+**Yes, they run through exe-metal.** Steam launches a game as a child process
+inside the same Wine prefix, so it inherits the whole stack. Verified by
+inspecting a process Steam launched itself, rather than one exe-metal launched:
+
+```
+$ lsof -p $(pgrep -f steamwebhelper.exe)
+  118 files open under engines/sikarugir-10.0+d3dmetal
+  216 files open under bottles/cosmos-steam
+  bound to bottles/cosmos-steam/pfx
+```
+
+The tuned environment reaches it too — `WINEPREFIX`, `D3DM_ENABLE_METALFX`,
+`MTL_SHADER_CACHE_PATH`, `ROSETTA_ADVERTISE_AVX`, `WINEESYNC` and
+`WINEDEBUG=-all` are all present in a child launched inside the bottle.
+
+**But the renderer is fixed per bottle, and that is a real limitation.** A
+bottle is created with one renderer, and every game Steam launches into it gets
+that one. There is no per-game choice, because Steam — not exe-metal — is doing
+the launching.
+
+That matters most for bitness. In a `d3dmetal` bottle:
+
+| Game | `d3d11.dll` it loads | Result |
+|---|---|---|
+| 64-bit | D3DMetal (106 KB shim) | Metal, as intended |
+| 32-bit | **Wine's builtin wined3d** (413 KB) | no Metal — the slow fallback |
+
+D3DMetal ships only `ddraw.dll` for `i386-windows`; DXMT ships a full 32-bit
+set (`d3d11.dll`, `d3d10core.dll`, `dxgi.dll`, `winemetal.dll`). So for a
+library with 32-bit titles in it, a second Steam bottle is worth having:
+
+```
+exe-metal create steam32 --runtime sikarugir-10.0 --renderer dxmt
+exe-metal steam install steam32
+```
+
+Anti-cheat is the other hard stop — kernel-level anti-cheat does not run here
+regardless of bottle.
+
+## When something breaks
+
+`exe-metal diagnose` scans a bottle's logs and configuration for the failure
+signatures in this README and names the fix. `run` and `play` do it
+automatically on a non-zero exit, so a bare exit code is never the whole answer.
+
+It also checks the failures that produce **no log line at all** — a missing
+FreeType being the worst of them, because nothing errors and the game simply
+renders no text anywhere.
+
+A note on signature quality: these are deliberately narrow. An early version
+matched `NO CONNECTION` for the two-Steam-clients case, which also matches
+`SteamServerConnectFailure_t No Connection Reconnect` — routine reconnect noise
+that appears dozens of times in a completely healthy session. It now matches
+only Steam's own `LoggedInElsewhere` result, and there is a regression test
+holding a real healthy log to keep it that way.
+
 ## Verified working
 
 - Wine 10.0 boots a WoW64 prefix; 32- and 64-bit Windows binaries both run.
@@ -114,13 +215,28 @@ result inverted.
   starts cleanly — no `0x3008`.
 - **3D rendering works.** Unigine Heaven renders through DXMT → Metal at
   2560x1440 with MetalFX spatial upscaling from 1280x720, on Rosetta.
+- **Steam logs in.** `RecvMsgClientLogOnResponse() : 'OK'` against a real
+  account, with the session held open — not just a login window on screen.
+- **Vulkan reaches the GPU.** A 64-bit Windows Vulkan binary run through
+  `play` loaded MoltenVK 1.4.1, enumerated 153 extensions, and created a
+  `VkDevice` on the Apple M5 Pro. Exit code 0. Wine's own MoltenVK path, with
+  no DirectX renderer involved.
+- **Binary detection is exact.** `probe` agrees with `file(1)` on both
+  bitnesses across a 32/64-bit pair of the same program.
 - Engine composition, bottle creation, prune, doctor.
 
 ## Not yet verified
 
-- **No real game has been run.** Everything above is a synthetic benchmark and
-  the Steam client. A shipping AAA title exercises texture streaming, audio,
-  input, save files and a launcher — none of which this has touched.
+- **No real game has been run.** Everything above is a synthetic benchmark, a
+  driver-query tool and the Steam client. A shipping title exercises texture
+  streaming, audio, input, save files and a launcher — none of which this has
+  touched.
+- **The 32-bit renderer paths are chosen but unproven.** `probe` correctly
+  routes 32-bit binaries to DXMT and DirectX 9 to d9vk, and refuses to pair
+  D3DMetal with a 32-bit exe — but no 32-bit game has actually rendered a frame
+  through them. Heaven exercised DXMT at 64-bit only.
+- **`cnc-ddraw` has never been exercised at all.** It is installed and
+  selectable; nothing has run on it.
 - **Nothing is known about frame pacing under load.** Average fps is the easy
   number; what makes a game feel bad is the 1% low, and a 10-second synthetic
   loop cannot show that.

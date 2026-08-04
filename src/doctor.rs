@@ -1,5 +1,6 @@
 use crate::bottle;
 use crate::catalog;
+use crate::hw::Machine;
 use crate::paths::Layout;
 use crate::util;
 use anyhow::Result;
@@ -9,43 +10,53 @@ use anyhow::Result;
 pub fn run(layout: &Layout) -> Result<()> {
     let mut problems = 0;
 
+    let m = Machine::detect();
+
     println!("system");
-    let arch = util::capture("uname", &["-m"]).unwrap_or_default();
-    let ok_arch = arch == "arm64";
-    line(ok_arch, &format!("architecture: {arch}"));
-    if !ok_arch {
+    line(m.is_apple_silicon(), &format!("architecture: {}", m.arch));
+    if !m.is_apple_silicon() {
         println!("        exe-metal targets Apple Silicon.");
         problems += 1;
     }
 
-    let osver = util::capture("sw_vers", &["-productVersion"]).unwrap_or_default();
-    let major: u32 = osver.split('.').next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let ok_os = major >= 14;
-    line(ok_os, &format!("macOS: {osver}"));
-    if !ok_os {
+    line(m.macos_supported(), &format!("macOS: {}", m.macos_raw));
+    if !m.macos_supported() {
         println!("        macOS 14 (Sonoma) or newer is required.");
         problems += 1;
     }
 
-    let ros = util::rosetta_present();
-    line(ros, "Rosetta 2");
-    if !ros {
+    line(m.rosetta, "Rosetta 2");
+    if !m.rosetta {
         println!("        install with: softwareupdate --install-rosetta --agree-to-license");
         problems += 1;
     }
 
-    let cpu = util::capture("sysctl", &["-n", "machdep.cpu.brand_string"]).unwrap_or_default();
-    println!("  ---   cpu: {cpu}");
+    println!("  ---   chip: {} ({}) on {}", m.silicon, m.cpu_brand, m.model);
+    println!(
+        "  ---   cores: {} total — {} performance, {} efficiency",
+        m.total_cores, m.perf_cores, m.eff_cores
+    );
 
-    let mem = util::capture("sysctl", &["-n", "hw.memsize"])
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(|b| b / 1024 / 1024 / 1024)
-        .unwrap_or(0);
-    let ok_mem = mem >= 16;
-    line(ok_mem, &format!("memory: {mem} GB"));
+    let ok_mem = !m.memory_is_tight();
+    line(ok_mem, &format!("memory: {} GB", m.memory_gb));
     if !ok_mem {
-        println!("        16 GB is the practical floor for modern titles.");
+        println!("        16 GB is the practical floor for heavy modern titles.");
+    }
+
+    // Capability gates, so nobody enables a feature the silicon cannot honour.
+    println!("\ncapabilities");
+    line(m.has_metalfx(), "MetalFX upscaling");
+    line(m.has_hardware_raytracing(), "hardware ray tracing");
+    if !m.has_hardware_raytracing() && m.is_apple_silicon() {
+        println!(
+            "        {} has no RT units — hardware ray tracing arrived with the M3.",
+            m.silicon
+        );
+        println!("        Leave dxr = false; enabling it costs performance and returns nothing.");
+    }
+    line(m.rosetta_advertises_avx(), "Rosetta AVX advertisement");
+    if !m.rosetta_advertises_avx() {
+        println!("        macOS 15 added this. ROSETTA_ADVERTISE_AVX is inert on macOS 14.");
     }
 
     let free = util::capture("df", &["-h", "/System/Volumes/Data"]).unwrap_or_default();

@@ -4,16 +4,24 @@
 //! then runs executables inside per-game "bottles" (Wine prefixes) with the
 //! environment tuned for framerate.
 
+mod auto;
 mod bottle;
 mod catalog;
+mod diagnose;
 mod doctor;
 mod engine;
 mod env;
+mod hw;
 mod install;
 mod paths;
+mod probe;
 mod prune;
+mod recent;
 mod run;
+mod setup;
 mod steam;
+#[cfg(feature = "ui")]
+mod ui;
 mod util;
 
 use anyhow::{bail, Result};
@@ -34,6 +42,63 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Everything, in one command: check the machine, install, build a bottle.
+    Setup {
+        /// Name of the bottle to create.
+        #[arg(long, default_value = "default")]
+        bottle: String,
+        #[arg(long, default_value = catalog::DEFAULT_RUNTIME)]
+        runtime: String,
+        #[arg(long, default_value = catalog::DEFAULT_RENDERER)]
+        renderer: String,
+        /// Recreate the bottle if it already exists.
+        #[arg(long)]
+        force: bool,
+        /// Print the plan without downloading anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Run an executable, choosing the runtime and renderer from the file.
+    Play {
+        /// Path to the .exe.
+        exe: PathBuf,
+        /// Arguments passed through to the executable.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Use this bottle instead of choosing one.
+        #[arg(long)]
+        bottle: Option<String>,
+        /// Return immediately instead of waiting for the program to exit.
+        #[arg(long)]
+        detach: bool,
+        /// Show the Metal performance overlay.
+        #[arg(long)]
+        hud: bool,
+    },
+
+    /// Inspect an executable and show what would be used to run it.
+    Probe { exe: PathBuf },
+
+    /// Look for known failure signatures in a bottle's logs and configuration.
+    Diagnose {
+        /// Bottle to check. Omit to check every bottle.
+        bottle: Option<String>,
+    },
+
+    /// List recently launched executables.
+    Recent {
+        /// Drop entries whose file no longer exists.
+        #[arg(long)]
+        prune: bool,
+        /// Remove one entry by path.
+        #[arg(long)]
+        forget: Option<PathBuf>,
+    },
+
+    /// Open the window.
+    Ui,
+
     /// Download the default runtime and every renderer.
     Install {
         /// Runtime to install (defaults to the recommended one).
@@ -149,6 +214,117 @@ fn real_main() -> Result<()> {
     layout.ensure()?;
 
     match cli.cmd {
+        Cmd::Setup {
+            bottle: name,
+            runtime,
+            renderer,
+            force,
+            dry_run,
+        } => {
+            setup::run(
+                &layout,
+                &setup::Options {
+                    bottle: name,
+                    runtime,
+                    renderer,
+                    force,
+                    dry_run,
+                },
+            )?;
+        }
+
+        Cmd::Play {
+            exe,
+            args,
+            bottle: name,
+            detach,
+            hud,
+        } => {
+            let code = auto::play(
+                &layout,
+                &auto::Request {
+                    exe,
+                    args,
+                    detach,
+                    hud,
+                    bottle: name,
+                },
+            )?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+
+        Cmd::Probe { exe } => {
+            let d = auto::decide(&layout, &exe, None)?;
+            auto::print_decision(&d);
+        }
+
+        Cmd::Diagnose { bottle: name } => {
+            let targets = match name {
+                Some(n) => vec![bottle::Bottle::load(&layout, &n)?],
+                None => bottle::list(&layout),
+            };
+            if targets.is_empty() {
+                println!("no bottles to check — create one with: exe-metal setup");
+            }
+            let mut worst_clean = true;
+            for b in targets {
+                println!("\n=== {} [{} + {}] ===", b.name, b.runtime, b.renderer);
+                let report = diagnose::bottle(&layout, &b)?;
+                report.print();
+                worst_clean &= report.is_clean();
+            }
+            if !worst_clean {
+                std::process::exit(1);
+            }
+        }
+
+        Cmd::Recent { prune, forget } => {
+            let mut r = recent::Recent::load(&layout);
+            if let Some(p) = forget {
+                r.forget(&p);
+                r.save(&layout)?;
+                println!("forgot {}", p.display());
+            }
+            if prune {
+                let n = r.forget_missing();
+                r.save(&layout)?;
+                println!("forgot {n} missing entr{}", if n == 1 { "y" } else { "ies" });
+            }
+            let entries = r.list();
+            if entries.is_empty() {
+                println!("nothing yet — run: exe-metal play <exe>");
+            }
+            for e in entries {
+                println!(
+                    "{:<28} {:<16} {:<16} {}",
+                    e.label(),
+                    e.bottle,
+                    recent::ago(e.last_run),
+                    if e.exists() {
+                        e.path.display().to_string()
+                    } else {
+                        format!("{} (missing)", e.path.display())
+                    }
+                );
+            }
+        }
+
+        Cmd::Ui => {
+            #[cfg(feature = "ui")]
+            {
+                ui::launch()?;
+            }
+            #[cfg(not(feature = "ui"))]
+            {
+                bail!(
+                    "this build has no window — it was compiled with --no-default-features.\n\
+                     Rebuild with: cargo build --release"
+                );
+            }
+        }
+
         Cmd::Install { runtime } => {
             util::require_apple_silicon()?;
             if !util::rosetta_present() {
@@ -227,6 +403,9 @@ fn real_main() -> Result<()> {
             let code = run::exec(&layout, &b, &exe, &args, detach, sink)?;
             if code != 0 {
                 eprintln!("exited with {code}");
+                // A bare exit code is rarely the useful part. Say what it means
+                // if we recognise it.
+                auto::explain_failure(&layout, &b, &log);
                 std::process::exit(code);
             }
         }
