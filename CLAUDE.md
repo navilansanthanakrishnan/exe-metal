@@ -21,6 +21,37 @@ install. A full fresh setup takes ~42s and ends at 3.6 GB on disk.
 
 The binary lands at `target/release/exe-metal`.
 
+## CI gates — run these before pushing
+
+CI is strict and will reject anything that fails them:
+
+```sh
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+shellcheck --severity=warning install.sh tests/smoke.sh
+```
+
+MSRV is **1.92**, set by egui/eframe and enforced by a CI job. CI cannot run
+`tests/smoke.sh` — it needs real Wine and a real GPU — so run it yourself for
+anything touching launching, prefixes, renderers or Steam, and say so in the PR.
+
+## Releasing
+
+Tag `v*` and push; `.github/workflows/release.yml` verifies, builds, packages
+with a SHA-256, confirms the packaged binary runs, and publishes.
+
+```sh
+# bump version in Cargo.toml, add a CHANGELOG entry, then:
+git tag -a v0.2.0 -m "..." && git push origin v0.2.0
+```
+
+## Where things live
+
+Public-facing docs are in `docs/`; this file is the internal guide.
+`docs/observations.md` holds measurements and open issues from live use.
+`ROADMAP.md` leads with the project's real gap: too few games verified.
+
 ## Verifying a change
 
 Tests cover the pure logic. Anything touching Wine has to be run:
