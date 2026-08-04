@@ -33,9 +33,30 @@ pub fn build(layout: &Layout, bottle: &Bottle) -> BTreeMap<String, String> {
     // them. On a busy frame this alone can halve throughput.
     e.insert("WINEDEBUG".into(), "-all".into());
 
-    // Suppress the Mono/Gecko installer prompts; games do not need them and the
-    // dialogs block an unattended launch.
-    e.insert("WINEDLLOVERRIDES".into(), "mscoree,mshtml=".into());
+    // Do NOT blanket-disable mscoree here.
+    //
+    // This used to read `mscoree,mshtml=`, to stop the Mono/Gecko installer
+    // dialogs blocking an unattended launch. `mscoree=` disables the .NET
+    // loader outright, which silently breaks every .NET game — Celeste,
+    // Stardew Valley, Terraria, anything XNA/FNA/MonoGame. The observed
+    // failure was `err:mscoree:LoadLibraryShim error reading registry key for
+    // installroot`, and the game exiting before drawing a frame.
+    //
+    // The dialog only appears when Wine cannot find the installer to run. The
+    // runtimes here bundle both, so the correct fix is to let them install (see
+    // `bottle::create`) and suppress nothing. Anything still missing is
+    // suppressed individually rather than as a pair.
+    let engine = layout.engine(&bottle.runtime, &bottle.renderer);
+    let mut disable: Vec<&str> = Vec::new();
+    if !crate::install::bundles_mono(&engine) && !mono_installed(layout, bottle) {
+        disable.push("mscoree");
+    }
+    if !crate::install::bundles_gecko(&engine) {
+        disable.push("mshtml");
+    }
+    if !disable.is_empty() {
+        e.insert("WINEDLLOVERRIDES".into(), format!("{}=", disable.join(",")));
+    }
 
     // --- CPU -------------------------------------------------------------
     if bottle.perf.avx {
@@ -103,6 +124,17 @@ pub fn build(layout: &Layout, bottle: &Bottle) -> BTreeMap<String, String> {
         e.insert(k.clone(), v.clone());
     }
     e
+}
+
+/// Has wine-mono actually landed in this prefix?
+///
+/// Checked rather than assumed: a prefix created while mscoree was disabled has
+/// no Mono at all, and stays that way until something installs it.
+pub fn mono_installed(layout: &Layout, bottle: &Bottle) -> bool {
+    bottle
+        .prefix(layout)
+        .join("drive_c/windows/mono")
+        .is_dir()
 }
 
 /// Render the environment as shell assignments, for `exe-metal env`.

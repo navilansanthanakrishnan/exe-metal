@@ -19,10 +19,12 @@ mod prune;
 mod recent;
 mod run;
 mod setup;
+mod status;
 mod steam;
 #[cfg(feature = "ui")]
 mod ui;
 mod util;
+mod window;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -79,6 +81,42 @@ enum Cmd {
 
     /// Inspect an executable and show what would be used to run it.
     Probe { exe: PathBuf },
+
+    /// Is a bottle healthy right now? Live processes, throughput, load.
+    Status {
+        /// Bottle to inspect. Omit for every bottle.
+        bottle: Option<String>,
+    },
+
+    /// Bring a bottle up to current recommended settings.
+    ///
+    /// Fixes the things that are frozen at creation time and silently drift:
+    /// thread synchronisation, missing wine-mono, window behaviour.
+    Repair {
+        /// Bottle to repair. Omit to repair every bottle.
+        bottle: Option<String>,
+    },
+
+    /// Change window, pointer and display behaviour for a bottle.
+    Window {
+        bottle: String,
+        /// Render into a resizable macOS window. Fixes a trapped pointer and
+        /// lets the window move between monitors.
+        #[arg(long)]
+        virtual_desktop: bool,
+        /// Go back to native windows.
+        #[arg(long, conflicts_with = "virtual_desktop")]
+        native: bool,
+        /// Size of the virtual desktop, e.g. 1920x1080.
+        #[arg(long)]
+        size: Option<String>,
+        /// Let Wine seize the whole display in fullscreen (traps the pointer).
+        #[arg(long)]
+        capture: bool,
+        /// Stop Wine seizing the display. This is the default.
+        #[arg(long, conflicts_with = "capture")]
+        no_capture: bool,
+    },
 
     /// Look for known failure signatures in a bottle's logs and configuration.
     Diagnose {
@@ -258,6 +296,111 @@ fn real_main() -> Result<()> {
         Cmd::Probe { exe } => {
             let d = auto::decide(&layout, &exe, None)?;
             auto::print_decision(&d);
+        }
+
+        Cmd::Status { bottle: name } => {
+            let targets = match name {
+                Some(n) => vec![bottle::Bottle::load(&layout, &n)?],
+                None => bottle::list(&layout),
+            };
+            for (i, b) in targets.iter().enumerate() {
+                if i > 0 {
+                    println!();
+                }
+                status::run(&layout, b)?;
+            }
+        }
+
+        Cmd::Repair { bottle: name } => {
+            let targets = match name {
+                Some(n) => vec![bottle::Bottle::load(&layout, &n)?],
+                None => bottle::list(&layout),
+            };
+            if targets.is_empty() {
+                println!("no bottles to repair");
+            }
+            for mut b in targets {
+                println!("\n=== {} ===", b.name);
+                let mut changed = false;
+
+                // Thread sync: what a bottle created today would use.
+                if let Some(rt) = catalog::runtime(&b.runtime) {
+                    if rt.msync && !b.perf.msync {
+                        b.perf.msync = true;
+                        b.perf.esync = false;
+                        changed = true;
+                        println!("  sync     esync -> msync (measured 4x less CPU here)");
+                    }
+                }
+
+                // Window behaviour: stop Wine seizing the display.
+                if b.window.capture_displays {
+                    b.window.capture_displays = false;
+                    changed = true;
+                    println!("  window   display capture off (frees the pointer)");
+                }
+
+                if changed {
+                    b.save(&layout)?;
+                } else {
+                    println!("  config   already current");
+                }
+
+                // .NET, which needs the prefix rather than the config.
+                let engine = layout.engine(&b.runtime, &b.renderer);
+                if engine.exists() && install::bundles_mono(&engine) {
+                    if env::mono_installed(&layout, &b) {
+                        println!("  .NET     wine-mono present");
+                    } else {
+                        println!("  .NET     installing wine-mono (bundled, no download)");
+                        install::mono_into_prefix(&layout, &b)?;
+                        if env::mono_installed(&layout, &b) {
+                            println!("  .NET     installed — .NET games will now run");
+                        } else {
+                            eprintln!("  warn     wine-mono still missing");
+                        }
+                    }
+                }
+
+                if let Err(e) = window::apply(&layout, &b) {
+                    eprintln!("  warn     window settings: {e:#}");
+                } else {
+                    println!("  window   {}", window::describe(&b.window));
+                }
+            }
+        }
+
+        Cmd::Window {
+            bottle: name,
+            virtual_desktop,
+            native,
+            size,
+            capture,
+            no_capture,
+        } => {
+            let mut b = bottle::Bottle::load(&layout, &name)?;
+            if virtual_desktop {
+                b.window.virtual_desktop = true;
+            }
+            if native {
+                b.window.virtual_desktop = false;
+            }
+            if let Some(s) = size {
+                b.window.desktop_size = s;
+                b.window.virtual_desktop = true;
+            }
+            if capture {
+                b.window.capture_displays = true;
+            }
+            if no_capture {
+                b.window.capture_displays = false;
+            }
+            b.save(&layout)?;
+            window::apply(&layout, &b)?;
+            println!("{}: {}", b.name, window::describe(&b.window));
+            if b.window.capture_displays {
+                println!("  note  the pointer will be confined to the game while fullscreen");
+            }
         }
 
         Cmd::Diagnose { bottle: name } => {

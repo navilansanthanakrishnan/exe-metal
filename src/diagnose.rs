@@ -348,6 +348,21 @@ fn proactive(layout: &Layout, b: &Bottle) -> Vec<Finding> {
         });
     }
 
+    for (pid, cpu, name) in spinning_orphans(layout, b) {
+        out.push(Finding {
+            id: format!("spinning-orphan-{pid}"),
+            severity: Severity::Warn,
+            problem: format!(
+                "{name} (pid {pid}) is reparented to init and burning {cpu:.0}% CPU. It has \
+                 lost its wineserver and is spinning rather than working — the window is \
+                 usually already gone."
+            ),
+            fix: format!("exe-metal kill {}", b.name),
+            source: "process table".into(),
+            evidence: None,
+        });
+    }
+
     // Orphans are invisible to a normal `ps` grep because they report their
     // Windows path, not the prefix they came from.
     let orphans = orphan_count(layout);
@@ -376,6 +391,62 @@ fn proactive(layout: &Layout, b: &Bottle) -> Vec<Finding> {
                 evidence: None,
             });
         }
+    }
+
+    // .NET. Silent and total: the game exits before drawing anything.
+    let engine = layout.engine(&b.runtime, &b.renderer);
+    if engine.exists() && install::bundles_mono(&engine) && !crate::env::mono_installed(layout, b) {
+        out.push(Finding {
+            id: "no-dotnet".into(),
+            severity: Severity::Fatal,
+            problem: "wine-mono is not installed in this prefix, so no .NET game can run \
+                      — Celeste, Stardew Valley, Terraria and anything XNA/FNA/MonoGame \
+                      will exit before drawing a frame."
+                .into(),
+            fix: format!(
+                "The installer is bundled with the runtime; this needs no download:\n  \
+                 exe-metal repair {}",
+                b.name
+            ),
+            source: b.prefix(layout).join("drive_c/windows/mono").display().to_string(),
+            evidence: None,
+        });
+    }
+
+    // Settings frozen at creation time drift behind the catalog. This is what
+    // left a bottle on esync burning four times the CPU it needed to.
+    if let Some(rt) = catalog::runtime(&b.runtime) {
+        if rt.msync && !b.perf.msync {
+            out.push(Finding {
+                id: "sync-drift".into(),
+                severity: Severity::Warn,
+                problem: format!(
+                    "This bottle uses {}, but {} supports msync, which costs measurably \
+                     less CPU. Measured here: 540-580% on esync versus 141-188% on msync, \
+                     for the same client.",
+                    if b.perf.esync { "esync" } else { "no explicit sync" },
+                    b.runtime
+                ),
+                fix: format!("exe-metal repair {}", b.name),
+                source: "bottle config".into(),
+                evidence: None,
+            });
+        }
+    }
+
+    // The window complaints all trace back to this one switch.
+    if b.window.capture_displays {
+        out.push(Finding {
+            id: "display-capture".into(),
+            severity: Severity::Warn,
+            problem: "This bottle lets Wine capture the display for fullscreen. That traps \
+                      the pointer inside the game, stops the window being dragged to another \
+                      monitor, and breaks cmd-tab."
+                .into(),
+            fix: format!("exe-metal window {} --no-capture", b.name),
+            source: "bottle config".into(),
+            evidence: None,
+        });
     }
 
     // Asking for ray tracing on silicon that has no RT units is a pure loss.
@@ -421,6 +492,47 @@ fn has_freetype(lib: &Path) -> bool {
                 .any(|e| e.file_name().to_string_lossy().starts_with("libfreetype"))
         })
         .unwrap_or(false)
+}
+
+/// A process inside a bottle that has been reparented to init and is burning
+/// CPU. Named by behaviour rather than by executable, because the case that
+/// actually happened was `steam.exe` — which `prune` does not look for, and
+/// which no log line ever mentioned.
+///
+/// Both conditions are required. A busy game is not orphaned: it has a live
+/// wineserver as its parent, so `ppid` is never 1. That is what keeps this from
+/// firing on something working hard and legitimately.
+fn spinning_orphans(layout: &Layout, b: &Bottle) -> Vec<(u32, f32, String)> {
+    let pfx = b.prefix(layout).to_string_lossy().to_string();
+    let Ok(out) = util::capture("ps", &["-axo", "pid=,ppid=,%cpu=,command="]) else {
+        return Vec::new();
+    };
+    let mut hits = Vec::new();
+    for line in out.lines() {
+        if !line.contains(&pfx) && !line.contains("\\Steam\\") {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        let (Some(pid), Some(ppid), Some(cpu)) = (it.next(), it.next(), it.next()) else {
+            continue;
+        };
+        let (Ok(pid), Ok(ppid), Ok(cpu)) =
+            (pid.parse::<u32>(), ppid.parse::<u32>(), cpu.parse::<f32>())
+        else {
+            continue;
+        };
+        // 200% is well clear of anything idle, and far below what a real game
+        // under load would sit at while correctly parented.
+        if ppid == 1 && cpu > 200.0 {
+            let name = line
+                .split_whitespace()
+                .find(|t| t.ends_with(".exe"))
+                .map(|t| t.rsplit(['\\', '/']).next().unwrap_or(t).to_string())
+                .unwrap_or_else(|| "wine process".into());
+            hits.push((pid, cpu, name));
+        }
+    }
+    hits
 }
 
 /// Count Wine service processes whose prefix no longer has a live wineserver.

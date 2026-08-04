@@ -119,6 +119,27 @@ Three interleaved passes per runtime, both on `d3dmetal`, warm shader cache:
 | `sikarugir-10.0` | **222 fps** (225/219/221) | **604k draws/s** (602k/605k/605k) |
 | `winecx-26.1.0` | 185 fps (194/195/166) | 582k draws/s (564k/593k/591k) |
 
+### esync versus msync, on the Steam client
+
+One flag, measured on the same bottle running the same client:
+
+| | esync | msync |
+|---|---|---|
+| `steam.exe` CPU | 540–580% | **141–188%** (peak 236%) |
+| System load | 18.3, climbing | **7.4, falling** |
+| Download | stalled at 0 MB/15s | **+732 MB/20s (~293 Mbps)** |
+| Window | vanished twice, ~2 min in | stable for the session |
+
+Twice on esync the client rendered its store UI, then MoltenVK tore down its
+`VkInstance`, the window disappeared, and `steam.exe` was left reparented to
+init burning six cores while the download made no progress. One variable
+changed and four things improved together — strong, but twice-versus-once is
+not a controlled experiment, and it is recorded here as an observation rather
+than a proven cause.
+
+`exe-metal repair` migrates existing bottles, which is worth doing: settings are
+frozen at bottle creation and never revisited otherwise.
+
 Read this carefully before drawing conclusions from it. It is a synthetic test:
 one triangle, or 5000 tiny draws. Real games are bound by texture streaming,
 state changes and compute, none of which it exercises. It proves the D3D12 path
@@ -148,6 +169,91 @@ One more that is easy to get wrong: **Rosetta only advertises AVX on macOS 15
 and later.** `ROSETTA_ADVERTISE_AVX=1` is accepted and ignored on 14, so doctor
 reports it as unavailable there rather than implying a speedup that is not
 happening.
+
+## Steam games must be launched by Steam
+
+A game shipping `steam_api.dll` does not run when you launch its executable
+directly. It re-invokes the client and exits:
+
+```
+Startup - Steam Client launched with: "…\steam.exe" steam://run/504230
+```
+
+So launching by path gets you no game and **an extra Steam client**. Do it a
+few times and you have several — which is where "duplicate Steam" comes from,
+and it is not a bug in Steam.
+
+`exe-metal play` detects this, finds the appid from the manifest, and hands the
+game to the client that already owns the library:
+
+```
+$ exe-metal play ".../steamapps/common/Celeste/Celeste.exe"
+this is a Steam game (Celeste), so Steam has to start it
+asking the running Steam client to launch app 504230
+```
+
+The appid comes from matching `installdir` in `appmanifest_*.acf` rather than
+the folder name, because those differ — Project Playtime installs as
+`Poppy Playtime - Multiplayer`.
+
+## .NET games need wine-mono, and it is not installed by default
+
+`env.rs` used to set `WINEDLLOVERRIDES=mscoree,mshtml=` to suppress the Mono
+and Gecko installer dialogs. `mscoree=` disables the .NET loader outright, so
+**every .NET game failed** — Celeste, Stardew Valley, Terraria, anything
+XNA/FNA/MonoGame. The symptom is not obvious:
+
+```
+err:mscoree:LoadLibraryShim error reading registry key for installroot
+```
+
+and the game exits before drawing a frame.
+
+The runtimes bundle wine-mono already, so nothing needs downloading — it just
+has to be installed into the prefix, and `wineboot -u` will not do it after the
+fact. `exe-metal repair <bottle>` installs it; new bottles get it at creation.
+
+## Window, pointer and monitors
+
+Four complaints share one cause — Wine capturing the display:
+
+- the pointer cannot leave the game window
+- the window cannot be dragged to a second monitor
+- cmd-tab does not switch away cleanly
+- resizing fights back
+
+`CaptureDisplaysForFullscreen` takes the screen away from the window server, so
+macOS can no longer composite over it, move it, or hand off the pointer. Bottles
+now default it off, along with `UseSystemCursor` and
+`UseSystemKeyboardShortcuts` on.
+
+```
+exe-metal window <bottle> --no-capture               # the default
+exe-metal window <bottle> --virtual-desktop --size 1920x1080
+```
+
+Virtual desktop is the stronger option: the game renders into an ordinary
+resizable macOS window, so moving and resizing become the window server's job
+rather than Wine's.
+
+## Is it working right now?
+
+```
+$ exe-metal status cosmos-steam
+cosmos-steam   sikarugir-10.0 + d3dmetal   msync
+  window   native windows · display not captured · retina
+  Celeste.exe            pid 71089     48.5%    1177 MB
+  gameoverlayui64.exe    pid 71149      1.0%     120 MB
+  steam.exe              pid 70878      0.7%     265 MB
+  library  13823 MB  (idle)
+  load     3.18 2.95 3.98
+```
+
+Throughput is sampled twice rather than read once, because a single reading
+cannot tell a download moving at 40 MB/s from one that stopped ten minutes ago.
+A process reparented to init *and* above 200% CPU is flagged as a spinning
+orphan — both conditions are required, because a busy game always has a live
+wineserver as its parent and so is never orphaned.
 
 ## Games launched from the bottled Steam
 

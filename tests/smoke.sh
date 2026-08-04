@@ -231,6 +231,58 @@ if [ -n "$BOTTLE" ]; then
     done
 fi
 
+# ------------------------------------------------------------------ soak ----
+
+head_ "soak: a process that should stay up, stays up"
+# The gap that let a 580%-CPU spin go unnoticed: every other check verifies
+# something *starts*. Nothing watched a process that is supposed to keep
+# running, so all 36 checks passed green through a live outage.
+if [ -n "$BOTTLE" ]; then
+    "$BIN" kill "$BOTTLE" >/dev/null 2>&1
+    sleep 1
+    # cmd.exe with a long ping stays alive without a window or a GPU.
+    "$BIN" run --detach "$BOTTLE" 'C:\windows\system32\cmd.exe' /c "ping -n 60 127.0.0.1" >/dev/null 2>&1
+    sleep 12
+    if "$BIN" status "$BOTTLE" 2>/dev/null | grep -q "cmd.exe"; then
+        pass "process still alive after 12s"
+    else
+        fail "process still alive after 12s" "it exited or status cannot see it"
+    fi
+    # No process in a healthy bottle should be orphaned and spinning.
+    if "$BIN" status "$BOTTLE" 2>/dev/null | grep -q "ORPHANED AND SPINNING"; then
+        fail "no spinning orphans" "status reported one"
+    else
+        pass "no spinning orphans"
+    fi
+    "$BIN" kill "$BOTTLE" >/dev/null 2>&1
+    sleep 1
+    if "$BIN" status "$BOTTLE" 2>/dev/null | grep -q "running  nothing"; then
+        pass "kill leaves nothing behind"
+    else
+        fail "kill leaves nothing behind"
+    fi
+fi
+
+head_ "steam games are routed through the client"
+# A game shipping steam_api.dll re-invokes steam://run/<appid> and exits when
+# launched by path. That is where duplicate Steam clients come from.
+# Find an exe that actually sits beside a steam_api DLL, rather than the first
+# exe in the library — most of them are not DRM-wrapped.
+GAME=""
+while IFS= read -r -d '' cand; do
+    d="$(dirname "$cand")"
+    if [ -f "$d/steam_api.dll" ] || [ -f "$d/steam_api64.dll" ]; then
+        GAME="$cand"
+        break
+    fi
+done < <(find "$STEAM/steamapps/common" -maxdepth 2 -name '*.exe' -print0 2>/dev/null)
+if [ -n "$GAME" ]; then
+    has "detected as a Steam game" "Steam game" "$BIN" play --bottle "$BOTTLE" "$GAME"
+    "$BIN" kill "$BOTTLE" >/dev/null 2>&1
+else
+    printf '  \033[33mSKIP\033[0m  no Steam-DRM game installed to test with\n'
+fi
+
 # ---------------------------------------------------------------- report ----
 
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"

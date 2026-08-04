@@ -9,8 +9,8 @@ for the layer-by-layer comparison against CrossOver.
 ```sh
 cargo build --release           # with the window (~420 crates, minutes first time)
 cargo build --no-default-features   # CLI only, seconds
-cargo test                      # 31 unit tests, no fixtures or network needed
-./tests/smoke.sh                # 36 integration checks against the real install
+cargo test                      # 38 unit tests, no fixtures or network needed
+./tests/smoke.sh                # 40 integration checks, incl. a soak pass
 ./tests/smoke.sh --fresh        # same, into a throwaway HOME (downloads ~1.4 GB)
 ./install.sh                    # full bootstrap: Rust, build, install, setup
 ```
@@ -72,6 +72,17 @@ Cross-check `probe` against `file(1)` — they must agree on bitness.
   everything in a Steam bottle gets that bottle's renderer. D3DMetal ships no
   32-bit `d3d11.dll`, so 32-bit Steam games in a `d3dmetal` bottle silently
   fall back to wined3d. Use a separate `dxmt` bottle for those.
+- **Never disable `mscoree`.** It is the .NET loader; turning it off silently
+  breaks every XNA/FNA/MonoGame title. The Mono/Gecko dialogs it was suppressing
+  only appear when the installer is absent, and the runtimes bundle it.
+- **Steam games cannot be launched by path.** `steam_api.dll` next to an exe
+  means it will re-invoke `steam://run/<appid>` and exit, leaving an extra
+  client behind. Route through `steam::run_app`.
+- **Settings are frozen at bottle creation.** Anything added to `Perf` or
+  `WindowCfg` needs a migration in `exe-metal repair`, or existing bottles keep
+  the old value forever — that is how a bottle stayed on esync at 4x the CPU.
+- **`ps` shows Wine processes by their Windows path**, so matching on the unix
+  prefix finds the loader and misses every game. See `status::processes`.
 - **`probe` must reject a damaged PE, not shrug at it.** An MZ header with no
   valid PE header means a truncated download; accepting it as `Unknown` creates
   a bottle and defers the failure into Wine where the cause is invisible.
