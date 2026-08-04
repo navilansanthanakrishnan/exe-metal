@@ -1,20 +1,7 @@
-<div align="center">
-
 # exe-metal
 
-**Run Windows games and applications on Apple Silicon macOS — using only free components.**
-
-[![CI](https://github.com/NavilanSanthanakrishnan/exe-metal/actions/workflows/ci.yml/badge.svg)](https://github.com/NavilanSanthanakrishnan/exe-metal/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/NavilanSanthanakrishnan/exe-metal?sort=semver)](https://github.com/NavilanSanthanakrishnan/exe-metal/releases)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![macOS](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)](https://www.apple.com/macos/)
-[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1--M5-informational)](docs/architecture.md)
-
-[Install](#install) · [Quick start](#quick-start) · [Why](#what-this-actually-is) · [Docs](#documentation) · [Status](#project-status)
-
-</div>
-
----
+Run Windows games and applications on Apple Silicon macOS, using only free
+components.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/NavilanSanthanakrishnan/exe-metal/main/install.sh | sh
@@ -26,30 +13,23 @@ DirectX 9, 11 or 12, whether it is 32- or 64-bit, which of five renderers can
 actually run it, and creates the bottle. You do not need to know that D3DMetal
 has no 32-bit build, or that DXMT requires a Wine that exports `winemetal`.
 
+Requires macOS 14 (Sonoma) or newer, Apple Silicon, and Rosetta 2. There is no
+Intel path — the whole design rests on translating DirectX to Metal on an Apple
+GPU.
+
 ## Install
 
-**Requirements:** macOS 14 (Sonoma) or newer, Apple Silicon, and Rosetta 2.
-There is no Intel path — the whole design rests on translating DirectX to Metal
-on an Apple GPU.
-
-<details open>
-<summary><b>One-line installer</b> (recommended)</summary>
+The installer checks your machine, installs Rust if you do not have it, builds,
+installs to `~/.local/bin`, and runs `exe-metal setup`. From nothing to a
+working bottle in about 40 seconds on an M5 Pro.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/NavilanSanthanakrishnan/exe-metal/main/install.sh | sh
 ```
 
-Checks your machine, installs Rust if you do not have it, builds, installs to
-`~/.local/bin`, and runs `exe-metal setup`. Measured at **41.8 seconds** from
-nothing to a working bottle on an M5 Pro.
-
-</details>
-
-<details>
-<summary><b>Prebuilt binary</b></summary>
+Or take a [prebuilt binary](https://github.com/NavilanSanthanakrishnan/exe-metal/releases):
 
 ```sh
-# from https://github.com/NavilanSanthanakrishnan/exe-metal/releases
 shasum -a 256 -c exe-metal-*.tar.gz.sha256
 tar -xzf exe-metal-*.tar.gz
 install -m 0755 exe-metal-*/exe-metal ~/.local/bin/
@@ -57,10 +37,7 @@ xattr -d com.apple.quarantine ~/.local/bin/exe-metal   # ad-hoc signed, not nota
 exe-metal setup
 ```
 
-</details>
-
-<details>
-<summary><b>From source</b></summary>
+Or build it:
 
 ```sh
 git clone https://github.com/NavilanSanthanakrishnan/exe-metal
@@ -70,9 +47,7 @@ cargo build --no-default-features     # CLI only, builds in seconds
 ./target/release/exe-metal setup
 ```
 
-</details>
-
-If Rosetta is missing, `setup` tells you — it never escalates on your behalf:
+If Rosetta is missing, `setup` says so rather than escalating on your behalf:
 
 ```sh
 sudo softwareupdate --install-rosetta --agree-to-license
@@ -182,19 +157,17 @@ than implying a speedup that is not happening.
 
 ## Documentation
 
-| | |
-|---|---|
-| [Troubleshooting](docs/troubleshooting.md) | Every failure we have hit, and its fix |
-| [Steam](docs/steam.md) | Setup, launching games, the 32-bit caveat |
-| [Architecture](docs/architecture.md) | How runtimes, renderers, engines and bottles fit together |
-| [Observations](docs/observations.md) | Measurements and open issues from live use |
-| [Roadmap](ROADMAP.md) | What is next |
-| [Changelog](CHANGELOG.md) | What changed |
-| [Third-party licences](THIRD-PARTY.md) | **Read this before shipping anything built on this** |
+- [Troubleshooting](docs/troubleshooting.md) — every failure hit so far, and its fix
+- [Steam](docs/steam.md) — setup, launching games, the 32-bit caveat
+- [Architecture](docs/architecture.md) — runtimes, renderers, engines and bottles
+- [Observations](docs/observations.md) — measurements and open issues from live use
+- [Roadmap](ROADMAP.md) and [changelog](CHANGELOG.md)
+- [Third-party licences](THIRD-PARTY.md) — read this before shipping anything
+  built on this
 
 ## Project status
 
-**Pre-1.0, and honest about it.**
+Pre-1.0.
 
 Verified working:
 
@@ -202,7 +175,7 @@ Verified working:
 - The Windows Steam client installs, updates, logs in and holds the session
 - 3D rendering: Unigine Heaven through DXMT → Metal at 2560×1440 with MetalFX
 - A Windows Vulkan binary creating a `VkDevice` on the Apple GPU
-- **Celeste**, a real .NET game, launched through Steam
+- Celeste, a real .NET game, launched through Steam
 - Fresh install in 41.8s unattended; 38 unit + 40 integration tests
 
 Not yet verified:
