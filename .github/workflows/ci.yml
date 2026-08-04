@@ -66,11 +66,9 @@ jobs:
           shellcheck --severity=warning tests/smoke.sh
 
   msrv:
-    # The floor stated in Cargo.toml comes from egui/eframe, but it has never
-    # been verified against a real 1.92 toolchain — there was no rustup on the
-    # machine this was written on. Advisory until a green run confirms it, then
-    # this line should come off and the job should gate like the rest.
-    continue-on-error: true
+    # The floor stated in Cargo.toml has to be real, not aspirational. 1.92
+    # comes from egui/eframe and is confirmed green, so this gates like the
+    # rest — raising the floor now requires updating Cargo.toml deliberately.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
