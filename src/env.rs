@@ -113,8 +113,14 @@ pub fn build(layout: &Layout, bottle: &Bottle) -> BTreeMap<String, String> {
         "MTL_SHADER_CACHE_PATH".into(),
         cache.to_string_lossy().into(),
     );
-    e.insert("DXVK_STATE_CACHE_PATH".into(), cache.to_string_lossy().into());
-    e.insert("__GL_SHADER_DISK_CACHE_PATH".into(), cache.to_string_lossy().into());
+    e.insert(
+        "DXVK_STATE_CACHE_PATH".into(),
+        cache.to_string_lossy().into(),
+    );
+    e.insert(
+        "__GL_SHADER_DISK_CACHE_PATH".into(),
+        cache.to_string_lossy().into(),
+    );
 
     // Some 32-bit titles need the full 4 GB address space.
     e.insert("WINE_LARGE_ADDRESS_AWARE".into(), "1".into());
@@ -131,10 +137,7 @@ pub fn build(layout: &Layout, bottle: &Bottle) -> BTreeMap<String, String> {
 /// Checked rather than assumed: a prefix created while mscoree was disabled has
 /// no Mono at all, and stays that way until something installs it.
 pub fn mono_installed(layout: &Layout, bottle: &Bottle) -> bool {
-    bottle
-        .prefix(layout)
-        .join("drive_c/windows/mono")
-        .is_dir()
+    bottle.prefix(layout).join("drive_c/windows/mono").is_dir()
 }
 
 /// Render the environment as shell assignments, for `exe-metal env`.
@@ -146,7 +149,9 @@ pub fn as_shell(env: &BTreeMap<String, String>) -> String {
 }
 
 fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_alphanumeric() || "._-/:=".contains(c)) {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || "._-/:=".contains(c))
+    {
         s.to_string()
     } else {
         format!("'{}'", s.replace('\'', r"'\''"))

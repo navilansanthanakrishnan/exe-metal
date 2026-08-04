@@ -433,7 +433,10 @@ fn real_main() -> Result<()> {
             if prune {
                 let n = r.forget_missing();
                 r.save(&layout)?;
-                println!("forgot {n} missing entr{}", if n == 1 { "y" } else { "ies" });
+                println!(
+                    "forgot {n} missing entr{}",
+                    if n == 1 { "y" } else { "ies" }
+                );
             }
             let entries = r.list();
             if entries.is_empty() {
@@ -592,11 +595,17 @@ fn real_main() -> Result<()> {
                 let b = bottle::Bottle::load(&layout, &name)?;
                 steam::install(&layout, &b)?;
             }
-            SteamCmd::Launch { bottle: name, detach } => {
+            SteamCmd::Launch {
+                bottle: name,
+                detach,
+            } => {
                 let b = bottle::Bottle::load(&layout, &name)?;
                 steam::launch(&layout, &b, detach)?;
             }
-            SteamCmd::Setup { bottle: name, force } => {
+            SteamCmd::Setup {
+                bottle: name,
+                force,
+            } => {
                 util::require_apple_silicon()?;
                 let b = if force || bottle::Bottle::load(&layout, &name).is_err() {
                     bottle::create(
@@ -644,7 +653,12 @@ fn print_catalog() {
             ""
         };
         println!("  {}{}", r.id, dflt);
-        println!("    wine {}   32-bit: {}   winemetal: {}", r.wine_version, yn(r.win32), yn(r.winemetal));
+        println!(
+            "    wine {}   32-bit: {}   winemetal: {}",
+            r.wine_version,
+            yn(r.win32),
+            yn(r.winemetal)
+        );
         println!("    {}\n", r.notes);
     }
 

@@ -68,7 +68,10 @@ pub fn ensure(layout: &Layout, runtime_id: &str, renderer_id: &str) -> Result<Pa
     //    in, and macOS will not load an invalidly-signed framework.
     util::sign_tree(&dest)?;
 
-    std::fs::write(dest.join(".exe-metal-engine-ok"), format!("{runtime_id}+{renderer_id}\n"))?;
+    std::fs::write(
+        dest.join(".exe-metal-engine-ok"),
+        format!("{runtime_id}+{renderer_id}\n"),
+    )?;
     println!("  engine ready ({})", util::human_size(&dest));
     Ok(dest)
 }

@@ -19,21 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-exe-metal is an orchestration layer. It downloads and composes components it
-does not own, each under its own terms:
-
-  Wine            LGPL-2.1-or-later   https://winehq.org
-  DXMT            LGPL / MIT          https://github.com/3Shain/dxmt
-  DXVK            zlib                https://github.com/doitsujin/dxvk
-  D3DMetal        Apple, proprietary  Game Porting Toolkit terms
-
-D3DMetal is redistributed inside the Sikarugir wrapper template that exe-metal
-downloads. Apple distributes it under Game Porting Toolkit terms, which describe
-evaluation and development use. It is free to obtain; it is not free of terms.
-Read them before shipping anything built on this.
-
-Sikarugir ships without a licence file and therefore grants no formal rights.
-exe-metal downloads its official release artefacts rather than vendoring them.

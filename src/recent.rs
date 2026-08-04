@@ -103,7 +103,8 @@ impl Recent {
     /// Most recent first.
     pub fn list(&self) -> Vec<Entry> {
         let mut v = self.entries.clone();
-        v.sort_by(|a, b| b.last_run.cmp(&a.last_run));
+        // Descending, so Reverse rather than a bare sort_by_key.
+        v.sort_by_key(|e| std::cmp::Reverse(e.last_run));
         v
     }
 

@@ -198,10 +198,7 @@ pub struct Report {
 
 impl Report {
     pub fn is_clean(&self) -> bool {
-        !self
-            .findings
-            .iter()
-            .any(|f| f.severity != Severity::Note)
+        !self.findings.iter().any(|f| f.severity != Severity::Note)
     }
 
     pub fn print(&self) {
@@ -218,7 +215,11 @@ impl Report {
                 println!("       check: {}", f.source);
             }
             for (i, l) in f.fix.lines().enumerate() {
-                println!("       {}{}", if i == 0 { "fix: " } else { "     " }, l.trim());
+                println!(
+                    "       {}{}",
+                    if i == 0 { "fix: " } else { "     " },
+                    l.trim()
+                );
             }
         }
         println!();
@@ -408,7 +409,11 @@ fn proactive(layout: &Layout, b: &Bottle) -> Vec<Finding> {
                  exe-metal repair {}",
                 b.name
             ),
-            source: b.prefix(layout).join("drive_c/windows/mono").display().to_string(),
+            source: b
+                .prefix(layout)
+                .join("drive_c/windows/mono")
+                .display()
+                .to_string(),
             evidence: None,
         });
     }
@@ -424,7 +429,11 @@ fn proactive(layout: &Layout, b: &Bottle) -> Vec<Finding> {
                     "This bottle uses {}, but {} supports msync, which costs measurably \
                      less CPU. Measured here: 540-580% on esync versus 141-188% on msync, \
                      for the same client.",
-                    if b.perf.esync { "esync" } else { "no explicit sync" },
+                    if b.perf.esync {
+                        "esync"
+                    } else {
+                        "no explicit sync"
+                    },
                     b.runtime
                 ),
                 fix: format!("exe-metal repair {}", b.name),
