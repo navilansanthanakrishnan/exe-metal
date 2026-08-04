@@ -17,6 +17,9 @@ pub struct Bottle {
     pub windows: String,
     #[serde(default)]
     pub perf: Perf,
+    /// Window, pointer and display behaviour.
+    #[serde(default)]
+    pub window: crate::window::WindowCfg,
     /// Extra environment variables, applied last so they win.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -140,6 +143,7 @@ pub fn create(
         renderer: renderer_id.to_string(),
         windows: default_windows(),
         perf,
+        window: crate::window::WindowCfg::default(),
         env: BTreeMap::new(),
     };
     bottle.save(layout)?;
@@ -162,6 +166,35 @@ pub fn create(
             "  warn    prefix has no WoW64 layer — 32-bit applications (including the \
              Steam client) will not run in this bottle"
         );
+    }
+
+    // .NET. Without this every XNA/FNA/MonoGame title — Celeste, Stardew
+    // Valley, Terraria — dies before drawing a frame with
+    // `err:mscoree:LoadLibraryShim error reading registry key for installroot`.
+    // The installer is bundled with the runtime, so this costs one wineboot
+    // pass and no download.
+    let engine = layout.engine(runtime_id, renderer_id);
+    if crate::install::bundles_mono(&engine) {
+        if crate::env::mono_installed(layout, &bottle) {
+            println!("  .NET     wine-mono already present");
+        } else {
+            println!("  .NET     installing wine-mono (bundled with the runtime)");
+            let _ = crate::install::mono_into_prefix(layout, &bottle);
+            if crate::env::mono_installed(layout, &bottle) {
+                println!("  .NET     wine-mono installed");
+            } else {
+                eprintln!(
+                    "  warn    wine-mono did not install — .NET games will not run.\n\
+                     \x20         check with: exe-metal diagnose {name}"
+                );
+            }
+        }
+    }
+
+    // Window and pointer behaviour. Defaults stop Wine seizing the display,
+    // which is what traps the pointer and blocks a second monitor.
+    if let Err(e) = crate::window::apply(layout, &bottle) {
+        eprintln!("  warn    could not apply window settings: {e:#}");
     }
 
     println!(

@@ -43,6 +43,12 @@ pub fn exec(
         .unwrap_or_else(|| bottle.prefix(layout));
 
     let mut cmd = Command::new(&wine);
+    // Virtual desktop has to wrap the executable: `wine explorer /desktop=...
+    // game.exe`. Putting it in the registry instead would apply to every
+    // process in the prefix, including launchers that should stay native.
+    if let Some(desktop) = bottle.window.desktop_args() {
+        cmd.args(desktop);
+    }
     cmd.arg(&exe_abs).args(args).envs(&vars).current_dir(&workdir);
 
     if let Some(logpath) = log {
