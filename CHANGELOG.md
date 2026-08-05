@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of being stretched. `exe-metal repair` migrates existing bottles, and
   `exe-metal window <bottle> --scale <percent>` sets it explicitly.
 
+### Changed
+
+- **Windows applications now open in an ordinary macOS window by default.**
+  They get real traffic lights, resize, move between monitors, and go full
+  screen with the green button, and the pointer is never trapped. The guest
+  keeps a fixed backbuffer and never learns the window changed, which is also
+  why resizing no longer crashes games that only ever expected one resolution.
+  The window is sized to the main display rather than a fixed guess.
+
+  It also gives the guest a display-mode list. Without one, GoldSrc titles find
+  no modes and fall back to 640x480 — which is why Cry of Fear opened as a tiny
+  black square. `exe-metal window <bottle> --native` opts out for anything that
+  wants to drive the display itself.
+
 ### Added
 
 - `exe-metal ui --fullscreen`, plus a full-screen toggle in the window (F11,
