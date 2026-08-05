@@ -32,9 +32,19 @@ pub struct WindowCfg {
     /// is what traps the pointer and blocks a second monitor.
     #[serde(default)]
     pub capture_displays: bool,
-    /// Render into a resizable macOS window instead of driving the screen.
-    /// The most reliable fix for pointer capture and multi-monitor dragging.
-    #[serde(default)]
+    /// Render into an ordinary macOS window instead of driving the screen.
+    ///
+    /// On by default, because it is what makes a Windows application behave
+    /// like a Mac one: it gets real traffic lights, it resizes, it moves
+    /// between monitors, it goes full screen with the green button, and the
+    /// pointer is never trapped. The application keeps a fixed backbuffer and
+    /// never learns the window changed, which is also why resizing stops
+    /// crashing games that only ever expected one resolution.
+    ///
+    /// It additionally gives the guest a display-mode list. Without one,
+    /// GoldSrc titles find no modes to choose from and fall back to 640x480 —
+    /// which is exactly why Cry of Fear opened as a tiny black square.
+    #[serde(default = "yes")]
     pub virtual_desktop: bool,
     /// Size of that window.
     #[serde(default = "default_desktop_size")]
@@ -66,7 +76,24 @@ pub struct WindowCfg {
 }
 
 fn default_desktop_size() -> String {
-    "1600x900".into()
+    "1920x1080".into()
+}
+
+/// The logical size of the main display, which is what a window should match
+/// to feel native rather than arbitrary.
+///
+/// Uses the "UI Looks like" figure rather than the panel's pixel count: on a
+/// Retina display those differ by the scale factor, and the pixel count would
+/// produce a guest desktop twice the size of the screen it has to fit on.
+pub fn detect_display_size() -> Option<String> {
+    let out = crate::util::capture("system_profiler", &["SPDisplaysDataType"]).ok()?;
+    let line = out.lines().find(|l| l.contains("UI Looks like"))?;
+    let mut it = line.split_whitespace().skip_while(|t| *t != "like");
+    it.next()?;
+    let w: u32 = it.next()?.parse().ok()?;
+    it.next()?; // "x"
+    let h: u32 = it.next()?.trim_end_matches('@').parse().ok()?;
+    (w > 0 && h > 0).then(|| format!("{w}x{h}"))
 }
 
 /// 192 = 200%, which pairs with RetinaMode on a 2x display. Chosen rather than
@@ -94,8 +121,8 @@ impl Default for WindowCfg {
     fn default() -> Self {
         Self {
             capture_displays: false,
-            virtual_desktop: false,
-            desktop_size: default_desktop_size(),
+            virtual_desktop: true,
+            desktop_size: detect_display_size().unwrap_or_else(default_desktop_size),
             retina: true,
             dpi: default_dpi(),
             system_cursor: true,
@@ -241,6 +268,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_apps_get_a_native_macos_window_by_default() {
+        // Traffic lights, resizing, green-button full screen and a free
+        // pointer all come from this one setting.
+        let w = WindowCfg::default();
+        assert!(w.virtual_desktop);
+        assert!(w.desktop_args().is_some());
+    }
+
+    #[test]
     fn defaults_do_not_trap_the_pointer() {
         let w = WindowCfg::default();
         assert!(
@@ -252,13 +288,16 @@ mod tests {
     }
 
     #[test]
-    fn desktop_args_only_when_asked() {
+    fn desktop_args_are_produced_by_default_and_suppressible() {
         let mut w = WindowCfg::default();
-        assert!(w.desktop_args().is_none());
-        w.virtual_desktop = true;
-        let a = w.desktop_args().unwrap();
+        let a = w.desktop_args().expect("native windowing is the default");
         assert_eq!(a[0], "explorer");
-        assert!(a[1].contains("1600x900"));
+        assert!(a[1].starts_with("/desktop=exe-metal,"));
+
+        // Opting out has to remain possible: a game that drives the display
+        // itself does not want a desktop wrapped around it.
+        w.virtual_desktop = false;
+        assert!(w.desktop_args().is_none());
     }
 
     #[test]
@@ -268,7 +307,7 @@ mod tests {
             desktop_size: "enormous".into(),
             ..Default::default()
         };
-        assert!(w.desktop_args().unwrap()[1].contains("1600x900"));
+        assert!(w.desktop_args().unwrap()[1].contains(&default_desktop_size()));
     }
 
     #[test]

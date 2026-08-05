@@ -107,7 +107,7 @@ enum Cmd {
         /// Go back to native windows.
         #[arg(long, conflicts_with = "virtual_desktop")]
         native: bool,
-        /// Size of the virtual desktop, e.g. 1920x1080.
+        /// Size of the window, e.g. 1920x1080, or `auto` for this display.
         #[arg(long)]
         size: Option<String>,
         /// Let Wine seize the whole display in fullscreen (traps the pointer).
@@ -351,6 +351,20 @@ fn real_main() -> Result<()> {
                         window::dpi_percent(96));
                 }
 
+                // Give existing bottles a native macOS window too.
+                if !b.window.virtual_desktop {
+                    b.window.virtual_desktop = true;
+                    changed = true;
+                    println!("  window   native macOS window on (traffic lights, resize, green-button full screen)");
+                }
+                if let Some(size) = window::detect_display_size() {
+                    if b.window.desktop_size != size {
+                        println!("  window   sized to this display: {size}");
+                        b.window.desktop_size = size;
+                        changed = true;
+                    }
+                }
+
                 // Window behaviour: stop Wine seizing the display.
                 if b.window.capture_displays {
                     b.window.capture_displays = false;
@@ -408,7 +422,11 @@ fn real_main() -> Result<()> {
                 b.window.virtual_desktop = false;
             }
             if let Some(s) = size {
-                b.window.desktop_size = s;
+                b.window.desktop_size = if s == "auto" {
+                    window::detect_display_size().unwrap_or(s)
+                } else {
+                    s
+                };
                 b.window.virtual_desktop = true;
             }
             if capture {
