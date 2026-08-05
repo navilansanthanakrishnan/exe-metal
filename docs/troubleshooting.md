@@ -46,6 +46,28 @@ game starts, runs, and draws no text anywhere, which reads as a font bug.
 exe-metal engine remove <runtime> <renderer>
 ```
 
+## Steam and games render at half size
+
+Wine lays out at 96 DPI (100%) by default. On a Retina display, `RetinaMode`
+makes it report the full pixel resolution — so a 3024x1964 panel gets a Steam
+window sized for 1512x982, and everything is half the size it should be.
+Resizing does not help, because the layout never reflows: you just get scroll
+bars around the same small content.
+
+The fix is the same one Windows itself uses — raise the DPI:
+
+```sh
+exe-metal window <bottle> --scale 200     # 100, 125, 150, 200, 250, 300
+exe-metal repair <bottle>                 # or just migrate to the 200% default
+```
+
+This is real layout scaling, not pixel stretching: applications re-lay out at
+the new DPI, which is why text stays sharp and nothing gets cropped. Restart
+Steam or the game afterwards — DPI is read at process start.
+
+Bottles created before this existed sit at 96 with `RetinaMode` on, which is
+the worst combination. `repair` moves them to 200%.
+
 ## The pointer will not leave the game / I cannot drag it to my other monitor
 
 One setting. `CaptureDisplaysForFullscreen` takes the display away from the

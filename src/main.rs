@@ -116,6 +116,11 @@ enum Cmd {
         /// Stop Wine seizing the display. This is the default.
         #[arg(long, conflicts_with = "capture")]
         no_capture: bool,
+        /// Windows DPI scale as a percentage: 100, 125, 150, 200, 250, 300.
+        /// This is what makes Steam and games render at a sensible size on a
+        /// Retina display rather than half of one.
+        #[arg(long)]
+        scale: Option<u32>,
     },
 
     /// Look for known failure signatures in a bottle's logs and configuration.
@@ -135,7 +140,11 @@ enum Cmd {
     },
 
     /// Open the window.
-    Ui,
+    Ui {
+        /// Start full screen. Also toggleable with F11 once open.
+        #[arg(long)]
+        fullscreen: bool,
+    },
 
     /// Download the default runtime and every renderer.
     Install {
@@ -333,6 +342,15 @@ fn real_main() -> Result<()> {
                     }
                 }
 
+                // Retina on with 96 DPI renders every Windows app at half
+                // size. Bottles created before dpi existed have exactly that.
+                if b.window.retina && window::dpi_percent(b.window.dpi) < 150 {
+                    b.window.dpi = 192;
+                    changed = true;
+                    println!("  scale    Windows DPI -> 200% (was {}%, which renders half size on Retina)",
+                        window::dpi_percent(96));
+                }
+
                 // Window behaviour: stop Wine seizing the display.
                 if b.window.capture_displays {
                     b.window.capture_displays = false;
@@ -377,8 +395,12 @@ fn real_main() -> Result<()> {
             size,
             capture,
             no_capture,
+            scale,
         } => {
             let mut b = bottle::Bottle::load(&layout, &name)?;
+            if let Some(pct) = scale {
+                b.window.dpi = window::snap_dpi((pct as f32 * 0.96).round() as u32);
+            }
             if virtual_desktop {
                 b.window.virtual_desktop = true;
             }
@@ -457,13 +479,14 @@ fn real_main() -> Result<()> {
             }
         }
 
-        Cmd::Ui => {
+        Cmd::Ui { fullscreen } => {
             #[cfg(feature = "ui")]
             {
-                ui::launch()?;
+                ui::launch(fullscreen)?;
             }
             #[cfg(not(feature = "ui"))]
             {
+                let _ = fullscreen;
                 bail!(
                     "this build has no window — it was compiled with --no-default-features.\n\
                      Rebuild with: cargo build --release"
