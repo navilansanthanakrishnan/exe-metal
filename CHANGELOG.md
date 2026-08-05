@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Steam and games rendered at half size on Retina displays.** `RetinaMode`
+  made Wine report the full pixel resolution while it still laid out at 96 DPI,
+  so windows were sized for half the panel and resizing only added scroll bars
+  rather than reflowing. Bottles now set `HKCU\Control Panel\Desktop\LogPixels`
+  to 192 (200%), which is real Windows DPI scaling — applications re-lay out
+  instead of being stretched. `exe-metal repair` migrates existing bottles, and
+  `exe-metal window <bottle> --scale <percent>` sets it explicitly.
+
+### Added
+
+- `exe-metal ui --fullscreen`, plus a full-screen toggle in the window (F11,
+  Escape to leave) and zoom controls (Cmd +/−/0). Zoom tracks the viewport by
+  default so the interface keeps a constant physical size as the window grows,
+  and stops tracking the moment it is adjusted by hand.
+
 ## [0.1.0] — 2026-08-03
 
 First public release.
