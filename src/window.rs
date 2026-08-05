@@ -40,8 +40,22 @@ pub struct WindowCfg {
     #[serde(default = "default_desktop_size")]
     pub desktop_size: String,
     /// Report the real backing scale so text is not blurry on Retina.
+    ///
+    /// On its own this makes everything *smaller*, not sharper: Wine starts
+    /// reporting the full pixel resolution while still laying out at 96 DPI,
+    /// so a 3024x1964 panel gets a Steam window sized for 1512x982. `dpi`
+    /// below is the other half of the pair and must move with it.
     #[serde(default = "yes")]
     pub retina: bool,
+    /// Windows DPI, as `HKCU\Control Panel\Desktop\LogPixels`.
+    ///
+    /// 96 is 100%, 144 is 150%, 192 is 200% — the same scale factors the
+    /// Windows display settings offer, and the mechanism every Windows
+    /// application already understands. This is what makes Steam and games
+    /// render at a sensible size rather than half of one, and it is real
+    /// layout scaling: windows reflow instead of being pixel-stretched.
+    #[serde(default = "default_dpi")]
+    pub dpi: u32,
     /// Use the macOS cursor rather than Wine drawing its own, which is what
     /// makes the pointer feel like it is lagging behind the real one.
     #[serde(default = "yes")]
@@ -54,6 +68,24 @@ pub struct WindowCfg {
 fn default_desktop_size() -> String {
     "1600x900".into()
 }
+
+/// 192 = 200%, which pairs with RetinaMode on a 2x display. Chosen rather than
+/// detected because the alternative — 96 — is what produced a half-size Steam.
+fn default_dpi() -> u32 {
+    192
+}
+
+/// Windows accepts arbitrary values but applications are only well behaved at
+/// the standard steps, so snap to them.
+pub fn snap_dpi(v: u32) -> u32 {
+    const STEPS: [u32; 7] = [96, 120, 144, 168, 192, 240, 288];
+    *STEPS.iter().min_by_key(|s| s.abs_diff(v)).unwrap_or(&192)
+}
+
+/// What a DPI value means as a percentage, for display.
+pub fn dpi_percent(dpi: u32) -> u32 {
+    (dpi as f32 / 96.0 * 100.0).round() as u32
+}
 fn yes() -> bool {
     true
 }
@@ -65,6 +97,7 @@ impl Default for WindowCfg {
             virtual_desktop: false,
             desktop_size: default_desktop_size(),
             retina: true,
+            dpi: default_dpi(),
             system_cursor: true,
             grab_hotkeys: false,
         }
@@ -143,6 +176,31 @@ pub fn apply(layout: &Layout, bottle: &Bottle) -> Result<()> {
         ),
     ];
 
+    // DPI is a DWORD under Control Panel\Desktop rather than a Y/N string, so
+    // it cannot ride along in the table above.
+    let dpi = snap_dpi(w.dpi);
+    let status = Command::new(&wine)
+        .args([
+            "reg",
+            "add",
+            r"HKCU\Control Panel\Desktop",
+            "/v",
+            "LogPixels",
+            "/t",
+            "REG_DWORD",
+            "/d",
+            &dpi.to_string(),
+            "/f",
+        ])
+        .envs(&vars)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context("setting LogPixels")?;
+    if !status.success() {
+        eprintln!("  warn    could not set the Windows DPI");
+    }
+
     for (key, name, value) in settings {
         let status = Command::new(&wine)
             .args(["reg", "add", key, "/v", name, "/d", value, "/f"])
@@ -174,6 +232,7 @@ pub fn describe(w: &WindowCfg) -> String {
     if w.retina {
         parts.push("retina".into());
     }
+    parts.push(format!("{}% dpi", dpi_percent(snap_dpi(w.dpi))));
     parts.join(" · ")
 }
 
@@ -210,6 +269,25 @@ mod tests {
             ..Default::default()
         };
         assert!(w.desktop_args().unwrap()[1].contains("1600x900"));
+    }
+
+    #[test]
+    fn dpi_snaps_to_the_steps_windows_apps_expect() {
+        assert_eq!(snap_dpi(190), 192);
+        assert_eq!(snap_dpi(100), 96);
+        assert_eq!(snap_dpi(150), 144);
+        assert_eq!(snap_dpi(0), 96);
+        assert_eq!(snap_dpi(9999), 288);
+    }
+
+    #[test]
+    fn the_default_is_two_hundred_percent() {
+        // Paired with retina. 96 with RetinaMode on is what produced a
+        // half-size Steam window, so the default must not be 96.
+        let w = WindowCfg::default();
+        assert!(w.retina);
+        assert_eq!(dpi_percent(w.dpi), 200);
+        assert_ne!(w.dpi, 96, "96 with retina renders everything half size");
     }
 
     #[test]

@@ -21,18 +21,19 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
-pub fn launch() -> anyhow::Result<()> {
+pub fn launch(fullscreen: bool) -> anyhow::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([620.0, 560.0])
-            .with_min_inner_size([480.0, 420.0])
+            .with_inner_size([860.0, 680.0])
+            .with_min_inner_size([520.0, 440.0])
+            .with_fullscreen(fullscreen)
             .with_title("exe-metal"),
         ..Default::default()
     };
     eframe::run_native(
         "exe-metal",
         options,
-        Box::new(|_cc| Ok(Box::new(App::new()))),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
     .map_err(|e| anyhow::anyhow!("could not open the window: {e}"))
 }
@@ -50,6 +51,12 @@ enum State {
     Working,
 }
 
+/// Below and above this, the layout stops being usable rather than merely
+/// small or large, so the controls clamp here.
+const ZOOM_MIN: f32 = 0.6;
+const ZOOM_MAX: f32 = 3.0;
+const ZOOM_STEP: f32 = 0.1;
+
 struct App {
     machine: Machine,
     selected: Option<PathBuf>,
@@ -60,10 +67,23 @@ struct App {
     state: State,
     log: Vec<String>,
     rx: Option<Receiver<Msg>>,
+    /// While true, zoom tracks the viewport so the UI keeps a constant
+    /// physical size. Set false the moment the user adjusts zoom themselves —
+    /// after that their number is the one that matters.
+    auto_zoom: bool,
+    /// Last auto value applied, so we only write when it actually changes.
+    applied_zoom: f32,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Deliberately does NOT touch pixels_per_point. eframe already applies
+        // the display's scale factor, and overriding it here doubles the
+        // density: the UI stays sharp but every widget halves in size. Zoom is
+        // exposed through zoom_factor instead, which composes with the native
+        // scale rather than replacing it.
+        let _ = cc;
+
         let layout = Layout::discover().ok();
         let recent = layout
             .as_ref()
@@ -87,6 +107,137 @@ impl App {
             state: State::Idle,
             log: Vec::new(),
             rx: None,
+            auto_zoom: true,
+            applied_zoom: 0.0,
+        }
+    }
+
+    /// Keep the UI a constant *physical* size as the viewport changes.
+    ///
+    /// Going full screen does not make widgets bigger by itself — it makes the
+    /// viewport bigger and lays the same points out across it, so on a 3024x1964
+    /// panel the whole interface renders postage-stamp sized in the corner.
+    /// Scaling zoom with the viewport is what "full screen and it renders
+    /// properly" actually requires.
+    ///
+    /// Driven from physical pixels rather than points on purpose: points are
+    /// themselves a function of zoom, so feeding those back in oscillates.
+    fn auto_fit(&mut self, ctx: &egui::Context) {
+        if !self.auto_zoom {
+            return;
+        }
+        let ppp = ctx.pixels_per_point();
+        let Some(rect) = ctx.input(|i| i.raw.screen_rect) else {
+            return;
+        };
+        let physical_h = rect.height() * ppp;
+        let native = ctx.native_pixels_per_point().unwrap_or(1.0).max(0.5);
+
+        // REFERENCE_H is the window height the layout was designed against.
+        const REFERENCE_H: f32 = 760.0;
+        let want = (physical_h / (REFERENCE_H * native)).clamp(1.0, ZOOM_MAX);
+
+        // Only write on a real change; set_zoom_factor forces a relayout.
+        if (want - self.applied_zoom).abs() > 0.02 {
+            self.applied_zoom = want;
+            ctx.set_zoom_factor(want);
+        }
+    }
+
+    fn nudge_zoom(&mut self, ctx: &egui::Context, delta: f32) {
+        self.auto_zoom = false;
+        let z = (ctx.zoom_factor() + delta).clamp(ZOOM_MIN, ZOOM_MAX);
+        ctx.set_zoom_factor(z);
+    }
+
+    /// Hand control back to the viewport-tracking fit.
+    fn reset_zoom(&mut self) {
+        self.auto_zoom = true;
+        self.applied_zoom = 0.0;
+    }
+
+    fn is_fullscreen(ctx: &egui::Context) -> bool {
+        ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))
+    }
+
+    /// Zoom and fullscreen, plus the machine summary they sit beside.
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let full = Self::is_fullscreen(&ctx);
+            if ui
+                .button(if full {
+                    "Exit full screen"
+                } else {
+                    "Full screen"
+                })
+                .on_hover_text("F11")
+                .clicked()
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+            }
+
+            ui.separator();
+
+            if ui
+                .small_button("+")
+                .on_hover_text("Zoom in (Cmd +)")
+                .clicked()
+            {
+                self.nudge_zoom(&ctx, ZOOM_STEP);
+            }
+            // Clicking the percentage returns to the display's native scale,
+            // which is the only value guaranteed to render crisply.
+            if ui
+                .add(egui::Button::new(format!("{:.0}%", ctx.zoom_factor() * 100.0)).frame(false))
+                .on_hover_text("Fit to the window automatically")
+                .clicked()
+            {
+                self.reset_zoom();
+            }
+            if ui
+                .small_button("−")
+                .on_hover_text("Zoom out (Cmd −)")
+                .clicked()
+            {
+                self.nudge_zoom(&ctx, -ZOOM_STEP);
+            }
+
+            ui.separator();
+            ui.weak(self.machine.summary());
+        });
+    }
+
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let mut manual = 0.0f32;
+        let mut reset = false;
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::F11) {
+                let full = i.viewport().fullscreen.unwrap_or(false);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+            }
+            // Escape leaves full screen only — it must not close the window,
+            // which is what a bare Escape does in many toolkits.
+            if i.key_pressed(egui::Key::Escape) && i.viewport().fullscreen.unwrap_or(false) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
+            if i.modifiers.command {
+                if i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus) {
+                    manual = ZOOM_STEP;
+                }
+                if i.key_pressed(egui::Key::Minus) {
+                    manual = -ZOOM_STEP;
+                }
+                if i.key_pressed(egui::Key::Num0) {
+                    reset = true;
+                }
+            }
+        });
+        if manual != 0.0 {
+            self.nudge_zoom(ctx, manual);
+        }
+        if reset {
+            self.reset_zoom();
         }
     }
 
@@ -239,15 +390,34 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.auto_fit(ui.ctx());
+        self.handle_shortcuts(ui.ctx());
         self.pump(ui.ctx());
 
         egui::CentralPanel::default().show(ui, |ui| {
+            // On a full screen this would otherwise run a single column of text
+            // the whole width of a 3024-pixel display, which is unreadable.
+            // Centre a fixed measure instead and let the rest be margin.
+            let full_w = ui.available_width();
+            let content_w = full_w.min(920.0);
+            let margin = ((full_w - content_w) / 2.0).max(0.0);
             ui.add_space(6.0);
+            egui::Frame::NONE
+                .outer_margin(egui::Margin::symmetric(margin as i8, 0))
+                .show(ui, |ui| {
+                    ui.set_width(content_w);
+                    self.body(ui);
+                });
+        });
+    }
+}
+
+impl App {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        {
             ui.horizontal(|ui| {
                 ui.heading("exe-metal");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.weak(self.machine.summary());
-                });
+                self.toolbar(ui);
             });
             ui.separator();
 
@@ -396,7 +566,7 @@ impl eframe::App for App {
                         }
                     });
             }
-        });
+        }
     }
 }
 
