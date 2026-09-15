@@ -33,7 +33,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1.1"
 
 eframe = { version = "0.35", optional = true }
 egui = { version = "0.35", optional = true }
