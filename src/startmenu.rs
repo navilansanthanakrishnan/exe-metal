@@ -341,8 +341,8 @@ fn read_at(b: &[u8], off: usize, unicode: bool) -> Option<String> {
     let rest = b.get(off..)?;
     if unicode {
         let mut units = Vec::new();
-        for pair in rest.chunks_exact(2) {
-            let u = u16::from_le_bytes([pair[0], pair[1]]);
+        for pair in rest.as_chunks::<2>().0 {
+            let u = u16::from_le_bytes(*pair);
             if u == 0 {
                 break;
             }
@@ -362,8 +362,10 @@ fn read_at(b: &[u8], off: usize, unicode: bool) -> Option<String> {
 fn decode(b: &[u8], unicode: bool) -> String {
     if unicode {
         let units: Vec<u16> = b
-            .chunks_exact(2)
-            .map(|p| u16::from_le_bytes([p[0], p[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| u16::from_le_bytes(*p))
             .collect();
         String::from_utf16_lossy(&units)
     } else {
@@ -528,7 +530,8 @@ fn resolve(prefix: &Path, root: &Path, lnk: &Path, scope: &Scope) -> Option<Entr
     // correct when the link has not been moved since it was written.
     let (target, target_windows) = if let Some(w) = parsed.target.as_deref() {
         (windows_to_host(prefix, w)?, w.to_string())
-    } else if let Some(rel) = parsed.relative_path.as_deref() {
+    } else {
+        let rel = parsed.relative_path.as_deref()?;
         let mut host = lnk.parent()?.to_path_buf();
         for part in rel.split(['\\', '/']) {
             match part {
@@ -541,8 +544,6 @@ fn resolve(prefix: &Path, root: &Path, lnk: &Path, scope: &Scope) -> Option<Entr
         }
         let win = host_to_windows(prefix, &host).unwrap_or_default();
         (host, win)
-    } else {
-        return None;
     };
 
     let name = lnk.file_stem()?.to_string_lossy().to_string();
@@ -927,8 +928,8 @@ fn parse_reg_value(rhs: &str) -> Option<String> {
                 .filter(|s| !s.trim().is_empty())
                 .filter_map(|s| u8::from_str_radix(s.trim(), 16).ok())
                 .collect();
-            for pair in bytes.chunks_exact(2) {
-                units.push(u16::from_le_bytes([pair[0], pair[1]]));
+            for pair in bytes.as_chunks::<2>().0 {
+                units.push(u16::from_le_bytes(*pair));
             }
             let s = String::from_utf16_lossy(&units);
             return Some(s.trim_end_matches('\0').to_string());
