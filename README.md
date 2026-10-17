@@ -80,6 +80,22 @@ that owns the library. See [docs/steam.md](docs/steam.md).
 exe-metal steam setup
 ```
 
+## Library and Mac app
+
+```sh
+exe-metal open ~/Downloads/setup.exe   # install it; what it installs joins the library
+exe-metal library                      # installed titles, exe-metal and CrossOver bottles
+exe-metal launch <id>                  # Steam games go to Steam, Blizzard games to Battle.net
+exe-metal quit <id>                    # WM_CLOSE, so the game saves its settings
+exe-metal shortcut <id> --desktop      # a native .app for the Dock and Spotlight
+./packaging/make-app.sh --install      # EXE Metal.app: double-click any .exe
+```
+
+CrossOver bottles are a second backend: titles that only run under
+CrossOver's patched Wine are listed and launched through `cxstart`. The library
+index lives beside the bottles at
+`~/Library/Application Support/exe-metal/library.json`.
+
 ## What this actually is
 
 CrossOver's performance is not magic. It is three layers, and every one of them
@@ -176,7 +192,7 @@ Verified working:
 - 3D rendering: Unigine Heaven through DXMT → Metal at 2560×1440 with MetalFX
 - A Windows Vulkan binary creating a `VkDevice` on the Apple GPU
 - Celeste, a real .NET game, launched through Steam
-- Fresh install in 41.8s unattended; 38 unit + 40 integration tests
+- Fresh install in 41.8s unattended; 132 unit + 40 integration tests
 
 Not yet verified:
 

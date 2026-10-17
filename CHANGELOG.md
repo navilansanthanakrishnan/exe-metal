@@ -7,7 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-17
+
+### Added
+
+- **A library, and the Mac application around it** (merged from exe-metal-2).
+  `exe-metal open <exe>` installs or launches the way a double-click would, and
+  the programs an installer creates are found by diffing the prefix.
+  `library`, `launch`, `rescan`, `parts`, `quit` (graceful WM_CLOSE, so games
+  save their settings), `uninstall`, `forget`, `downloads`, and `home` for the
+  library window. `packaging/make-app.sh --install` builds `EXE Metal.app`,
+  which opens `.exe` files from Finder.
+- **CrossOver bottles as a second backend.** Titles in a CrossOver bottle are
+  listed and launched through `cxstart`; Blizzard titles are handed to
+  Battle.net and it is asked to `--exec="launch <code>"` the game.
+- Bottle tools: `clone` (APFS copy-on-write), `archive`/`restore`, `reboot`,
+  `menu --publish`, `assoc`, `reg`, `winver`, `sysinfo`, and
+  `shortcut <id>` for a native `.app` per title.
+- The library is now at `~/Library/Application Support/exe-metal/library.json`.
+  An existing exe-metal-2 library is read on first use; it is copied, not moved.
+
 ### Fixed
+
+- Library launches go through `play`, so Steam games are handed to Steam and a
+  bottle that cannot run the game is refused with the reason, as on the CLI.
+- Games run from outside a bottle (`~/Games/...`) are adopted into the library
+  from the recent list, with their play counts.
+- `status` saw nothing while such a game ran. Bottles are now identified by the
+  `WINEPREFIX` their wineserver carries.
+- `quit` failed on every exe-metal bottle (`could not find executable:
+  taskkill.exe`).
+- `parts` failed on CrossOver titles.
+- `prune` without `--force` stopped every running bottle while claiming to
+  change nothing. It now only lists.
+- Piping output (`exe-metal doctor | head`) panicked on the closed pipe.
+- Generated shortcuts called the binary under `target/`, so they broke silently
+  after `cargo clean`. They now call the installed copy, and alert when it is
+  missing.
 
 - **Steam and games rendered at half size on Retina displays.** `RetinaMode`
   made Wine report the full pixel resolution while it still laid out at 96 DPI,
@@ -124,5 +160,6 @@ First public release.
   because D3DMetal ships no 32-bit DirectX DLLs. Use a `dxmt` bottle for those.
 - Very few titles have been verified. See the game reports label.
 
-[Unreleased]: https://github.com/NavilanSanthanakrishnan/exe-metal/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/NavilanSanthanakrishnan/exe-metal/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/NavilanSanthanakrishnan/exe-metal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NavilanSanthanakrishnan/exe-metal/releases/tag/v0.1.0
