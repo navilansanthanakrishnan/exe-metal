@@ -38,9 +38,13 @@ struct Orphan {
 }
 
 pub fn run(layout: &Layout, force: bool) -> Result<()> {
-    // Shut down every known bottle the polite way first.
-    for b in bottle::list(layout) {
-        let _ = crate::run::kill(layout, &b);
+    // Shut down every known bottle the polite way first — but only when asked
+    // to act. Doing this on the listing pass stopped every running game while
+    // claiming to change nothing.
+    if force {
+        for b in bottle::list(layout) {
+            let _ = crate::run::kill(layout, &b);
+        }
     }
 
     let orphans = find_orphans();

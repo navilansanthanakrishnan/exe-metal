@@ -44,21 +44,27 @@ pub fn processes(layout: &Layout, b: &Bottle) -> Vec<Proc> {
     // loader and the services and misses every actual game. This is the same
     // blind spot that makes orphans hard to spot with a plain `ps` grep.
     //
-    // So: match the prefix where it appears, and otherwise claim `C:\`
-    // processes when this bottle is the only one with a live wineserver.
+    // So: match the prefix where it appears, and otherwise claim the Windows
+    // programs when this bottle is the only one with a live wineserver.
     // Ambiguous if two bottles run at once, which is rare and worth the far
     // more common case of seeing the game at all.
-    // pgrep on the prefix, not a scan for "wineserver": the wineserver reports
-    // the *engine* path on its command line, which is shared between bottles
-    // and so identifies nothing.
+    //
+    // A bottle is live when its wineserver carries its WINEPREFIX, read from
+    // the environment `ps -E` prints. The wineserver's command line names
+    // only the engine, which bottles share, and a game kept outside the
+    // bottle (`~/Games/...`) puts the prefix in no command line at all — so
+    // matching command lines alone reported a running game as "nothing".
+    let envs = util::capture("ps", &["-axEo", "command="]).unwrap_or_default();
     let live: Vec<String> = crate::bottle::list(layout)
         .into_iter()
         .filter(|other| {
-            std::process::Command::new("pgrep")
-                .args(["-f", &other.prefix(layout).to_string_lossy()])
-                .output()
-                .map(|o| !o.stdout.is_empty())
-                .unwrap_or(false)
+            let p = other.prefix(layout).to_string_lossy().to_string();
+            let tag = format!("WINEPREFIX={p}");
+            envs.lines().any(|l| {
+                l.contains("wineserver")
+                    && l.match_indices(&tag)
+                        .any(|(i, _)| matches!(l[i + tag.len()..].chars().next(), None | Some(' ')))
+            }) || out.lines().any(|l| l.contains(&p))
         })
         .map(|o| o.name)
         .collect();
@@ -66,8 +72,7 @@ pub fn processes(layout: &Layout, b: &Bottle) -> Vec<Proc> {
 
     let mut v = Vec::new();
     for line in out.lines() {
-        let is_ours = line.contains(&pfx)
-            || (owns_windows_procs && line.contains("C:\\") && line.contains(".exe"));
+        let is_ours = line.contains(&pfx) || (owns_windows_procs && is_windows_program(line));
         if !is_ours {
             continue;
         }
@@ -85,9 +90,12 @@ pub fn processes(layout: &Layout, b: &Bottle) -> Vec<Proc> {
         ) else {
             continue;
         };
+        // Up to the first `.exe`, not the first token ending in it: game
+        // names have spaces, and `Silksong.exe` is not what is running.
         let name = line
-            .split_whitespace()
-            .find(|t| t.ends_with(".exe"))
+            .to_ascii_lowercase()
+            .find(".exe")
+            .map(|end| &line[..end + 4])
             .map(|t| t.rsplit(['\\', '/']).next().unwrap_or(t).to_string())
             .or_else(|| {
                 line.contains("wineserver")
@@ -108,6 +116,22 @@ pub fn processes(layout: &Layout, b: &Bottle) -> Vec<Proc> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     v
+}
+
+/// A `ps` line for a program Wine is running: its command is a Windows path
+/// (`C:\...`, `Z:\...`) or a host path to an `.exe`, which is how a game run
+/// from outside the prefix shows up.
+fn is_windows_program(line: &str) -> bool {
+    // pid, ppid, %cpu and rss come first; the command is the rest.
+    let cmd = line
+        .split_whitespace()
+        .skip(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let b = cmd.as_bytes();
+    let drive = b.len() > 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'\\';
+    let host = cmd.starts_with('/') && cmd.to_ascii_lowercase().contains(".exe");
+    drive || host
 }
 
 fn dir_mb(p: &Path) -> Option<u64> {
@@ -196,6 +220,18 @@ pub fn run(layout: &Layout, b: &Bottle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_programs_are_recognised_by_drive_or_host_exe_path() {
+        assert!(is_windows_program(
+            "40570 1 0.0 900 Z:\\Users\\n\\Games\\Silksong\\UnityCrashHandler64.exe --attach 32"
+        ));
+        assert!(is_windows_program(
+            "40528 1 58.5 1200 /Users/n/Games/Hollow Knight Silksong/Hollow Knight Silksong.exe"
+        ));
+        assert!(!is_windows_program("1 0 0.0 10 /sbin/launchd"));
+        assert!(!is_windows_program("2 1 0.0 10 grep .exe"));
+    }
 
     fn p(ppid: u32, cpu: f32) -> Proc {
         Proc {

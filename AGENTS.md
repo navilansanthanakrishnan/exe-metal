@@ -9,7 +9,7 @@ for the layer-by-layer comparison against CrossOver.
 ```sh
 cargo build --release           # with the window (~420 crates, minutes first time)
 cargo build --no-default-features   # CLI only, seconds
-cargo test                      # 38 unit tests, no fixtures or network needed
+cargo test                      # 132 unit tests, no fixtures or network needed
 ./tests/smoke.sh                # 40 integration checks, incl. a soak pass
 ./tests/smoke.sh --fresh        # same, into a throwaway HOME (downloads ~1.4 GB)
 ./install.sh                    # full bootstrap: Rust, build, install, setup
@@ -83,6 +83,11 @@ Cross-check `probe` against `file(1)` — they must agree on bitness.
 | `auto.rs` | `play`: decide → create → check → launch → record → explain |
 | `diagnose.rs` | Failure signatures and the silent-failure checks |
 | `ui.rs` | egui window; all slow work on a worker thread |
+| `library.rs`, `scan.rs` | Title index; finding programs in a prefix by install root |
+| `flow.rs` | `open`/`launch`/`quit`/`rescan`: the library journeys |
+| `crossover.rs` | CrossOver bottles as a second backend, via `cxstart` |
+| `home.rs` | The library window; `packaging/make-app.sh` wraps it as an `.app` |
+| `lifecycle.rs`, `registry.rs`, `startmenu.rs`, `shortcut.rs` | clone/archive/uninstall, registry, Start Menu, native `.app` shortcuts |
 
 ## Things that will bite
 
