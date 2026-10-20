@@ -36,8 +36,8 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 serde_json = "1"
 
-eframe = { version = "0.35", optional = true }
-egui = { version = "0.35", optional = true }
+eframe = { version = "0.36", optional = true }
+egui = { version = "0.36", optional = true }
 rfd = { version = "0.17", optional = true }
 
 [profile.release]
